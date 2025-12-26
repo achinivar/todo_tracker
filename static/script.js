@@ -135,6 +135,7 @@ function displayTasks(tasks) {
     const todayStr = today.toISOString().split('T')[0];
     const weekEnd = new Date(today);
     weekEnd.setDate(today.getDate() + 7);
+    weekEnd.setHours(0, 0, 0, 0);
     
     const todayTasks = [];
     const weekTasks = [];
@@ -146,7 +147,9 @@ function displayTasks(tasks) {
             return;
         }
         
-        const taskDate = new Date(task.date);
+        // Parse date string in local timezone to avoid UTC issues
+        const [year, month, day] = task.date.split('-').map(Number);
+        const taskDate = new Date(year, month - 1, day);
         taskDate.setHours(0, 0, 0, 0);
         
         if (task.date === todayStr) {
@@ -161,7 +164,9 @@ function displayTasks(tasks) {
     
     renderTaskGroup('today-content', todayTasks);
     renderTaskGroup('week-content', weekTasks);
-    renderTaskGroup('remaining-content', remainingTasks);
+    // All Tasks section includes today, this week, and remaining tasks
+    const allTasks = [...todayTasks, ...weekTasks, ...remainingTasks];
+    renderTaskGroup('remaining-content', allTasks);
 }
 
 function displayCompletedTasks(tasks) {
@@ -207,16 +212,23 @@ function createTaskElement(task, isCompleted) {
     meta.className = 'task-meta';
     let metaText = '';
     if (task.date) {
-        const date = new Date(task.date);
-        metaText = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        // Parse date string in local timezone to avoid UTC shift
+        const [year, month, day] = task.date.split('-').map(Number);
+        const date = new Date(year, month - 1, day);
+        metaText = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
     }
     if (task.time) {
-        metaText += metaText ? ` at ${task.time}` : `Time: ${task.time}`;
+        // Convert 24-hour time to 12-hour AM/PM format
+        const [hours, minutes] = task.time.split(':').map(Number);
+        const period = hours >= 12 ? 'PM' : 'AM';
+        const displayHours = hours % 12 || 12;
+        const displayMinutes = String(minutes).padStart(2, '0');
+        const timeStr = `${displayHours}:${displayMinutes} ${period}`;
+        metaText += metaText ? ` at ${timeStr}` : `Time: ${timeStr}`;
     }
-    if (!metaText) {
-        metaText = 'No date/time set';
+    if (metaText) {
+        meta.textContent = metaText;
     }
-    meta.textContent = metaText;
     
     taskInfo.appendChild(title);
     taskInfo.appendChild(meta);
@@ -266,7 +278,7 @@ function toggleSection(section) {
 
 function openAddPopup() {
     editingChoreId = null;
-    document.getElementById('popup-title').textContent = 'Add Chore';
+    document.getElementById('popup-title').textContent = 'Add Task';
     document.getElementById('task-input').value = '';
     document.getElementById('date-input').value = '';
     document.getElementById('time-input').value = '';
@@ -280,7 +292,7 @@ function closePopup() {
 
 function editChore(task) {
     editingChoreId = task.id;
-    document.getElementById('popup-title').textContent = 'Edit Chore';
+    document.getElementById('popup-title').textContent = 'Edit Task';
     document.getElementById('task-input').value = task.task;
     document.getElementById('date-input').value = task.date || '';
     document.getElementById('time-input').value = task.time || '';
@@ -377,12 +389,14 @@ async function showDayTasks(dateStr) {
         const title = document.getElementById('day-date');
         const content = document.getElementById('day-tasks-content');
         
-        const date = new Date(dateStr);
+        // Parse date string in local timezone to avoid UTC shift
+        const [year, month, day] = dateStr.split('-').map(Number);
+        const date = new Date(year, month - 1, day);
         title.textContent = date.toLocaleDateString('en-US', { 
             weekday: 'long', 
             month: 'long', 
             day: 'numeric', 
-            year: 'numeric' 
+            year: '2-digit' 
         });
         
         content.innerHTML = '';

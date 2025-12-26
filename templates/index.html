@@ -3,15 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chore Tracker</title>
+    <title>Task Tracker</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
     <div class="container">
         <!-- Header with Add Chore button -->
         <header>
-            <h1>Chore Tracker</h1>
-            <button class="btn-add" onclick="openAddPopup()">Add Chore</button>
+            <h1>Task Tracker</h1>
+            <button class="btn-add" onclick="openAddPopup()">Add Task</button>
         </header>
 
         <!-- Calendar Section -->
@@ -46,8 +46,9 @@
                     <div class="task-group-content" id="week-content"></div>
                 </div>
                 <div id="remaining-tasks" class="task-group">
-                    <div class="task-group-header">
-                        <h3>Remaining</h3>
+                    <div class="task-group-header" onclick="toggleSection('remaining')">
+                        <h3>All Tasks</h3>
+                        <span class="toggle-icon">▼</span>
                     </div>
                     <div class="task-group-content" id="remaining-content"></div>
                 </div>
@@ -63,7 +64,7 @@
     <div id="chore-popup" class="popup">
         <div class="popup-content">
             <span class="close" onclick="closePopup()">&times;</span>
-            <h2 id="popup-title">Add Chore</h2>
+            <h2 id="popup-title">Add Task</h2>
             <form id="chore-form" onsubmit="saveChore(event)">
                 <div class="form-group">
                     <label for="task-input">Task *</label>
