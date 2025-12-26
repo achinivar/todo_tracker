@@ -35,6 +35,37 @@ header h1 {
     font-size: 2.5em;
 }
 
+.header-buttons {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.btn-refresh {
+    background: white;
+    border: 2px solid #667eea;
+    color: #667eea;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    padding: 0;
+}
+
+.btn-refresh:hover {
+    background: #f0f4ff;
+    transform: rotate(180deg);
+}
+
+.btn-refresh svg {
+    width: 20px;
+    height: 20px;
+}
+
 .btn-add {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
@@ -484,8 +515,24 @@ body:has(.popup.show) {
         text-align: center;
     }
 
-    .btn-add {
+    .header-buttons {
         width: 100%;
+        justify-content: space-between;
+    }
+
+    .btn-refresh {
+        width: 36px;
+        height: 36px;
+        flex-shrink: 0;
+    }
+
+    .btn-refresh svg {
+        width: 18px;
+        height: 18px;
+    }
+
+    .btn-add {
+        flex: 1;
         padding: 14px 20px;
         font-size: 16px;
     }
@@ -630,6 +677,16 @@ body:has(.popup.show) {
 
     header h1 {
         font-size: 1.5em;
+    }
+
+    .btn-refresh {
+        width: 32px;
+        height: 32px;
+    }
+
+    .btn-refresh svg {
+        width: 16px;
+        height: 16px;
     }
 
     .calendar-header h2 {
