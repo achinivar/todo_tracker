@@ -10,21 +10,21 @@ A web-based task tracking application for Raspberry Pi.
 - **Completed Tasks**: View and restore completed tasks (auto-deleted after 1 month)
 - **Day View**: Click on any calendar day to see all tasks for that day
 
-## Installation
+## Start the application
 
-1. Install Python dependencies:
+On a Raspberry Pi or anywhere you want to host the server, run the startup script 
+This will automatically create a virtual environment, install dependencies, and start the server.
+
 ```bash
-pip install -r requirements.txt
+./start_server.sh
 ```
 
-## Running the Application
+The script will:
+- Create a Python virtual environment (if it doesn't exist)
+- Install all required dependencies from `requirements.txt`
+- Start the Flask server
 
-1. Start the Flask server:
-```bash
-python app.py
-```
-
-2. Access the application:
+## Access the application:
    - **On the same device**: Open your browser and navigate to:
      ```
      http://localhost:5001
