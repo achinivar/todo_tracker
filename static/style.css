@@ -157,13 +157,6 @@ header h1 {
     border-width: 3px;
 }
 
-.calendar-day.has-tasks::after {
-    content: '•';
-    color: #28a745;
-    font-size: 20px;
-    margin-top: 5px;
-}
-
 .tasks-section {
     margin-top: 30px;
 }
@@ -275,30 +268,36 @@ header h1 {
 }
 
 .btn-complete {
-    background: #28a745;
-    color: white;
+    background: white;
+    color: #333;
+    border: 2px solid #28a745;
 }
 
 .btn-complete:hover {
-    background: #218838;
+    background: #f0f9f2;
+    border-color: #218838;
 }
 
 .btn-edit {
-    background: #ffc107;
+    background: white;
     color: #333;
+    border: 2px solid #ffc107;
 }
 
 .btn-edit:hover {
-    background: #e0a800;
+    background: #fffbf0;
+    border-color: #e0a800;
 }
 
 .btn-delete {
-    background: #dc3545;
-    color: white;
+    background: white;
+    color: #333;
+    border: 2px solid #dc3545;
 }
 
 .btn-delete:hover {
-    background: #c82333;
+    background: #fef0f0;
+    border-color: #c82333;
 }
 
 .btn-incomplete {
@@ -401,7 +400,8 @@ body:has(.popup.show) {
     font-weight: 500;
 }
 
-.form-group input {
+.form-group input,
+.form-group textarea {
     width: 100%;
     padding: 10px;
     border: 2px solid #e0e0e0;
@@ -410,9 +410,13 @@ body:has(.popup.show) {
     transition: border-color 0.2s;
     min-height: 44px;
     line-height: 1.5;
+    font-family: inherit;
+    resize: none;
+    overflow: hidden;
 }
 
-.form-group input:focus {
+.form-group input:focus,
+.form-group textarea:focus {
     outline: none;
     border-color: #667eea;
 }
@@ -563,7 +567,7 @@ body:has(.popup.show) {
         box-sizing: border-box;
     }
 
-    #chore-form {
+    #task-form {
         width: 100%;
         box-sizing: border-box;
         overflow-x: hidden;
@@ -676,7 +680,7 @@ body:has(.popup.show) {
         box-sizing: border-box;
     }
 
-    #chore-form {
+    #task-form {
         width: 100%;
         box-sizing: border-box;
         overflow-x: hidden;

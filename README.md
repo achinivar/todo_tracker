@@ -1,6 +1,6 @@
-# Chore Tracker
+# Task Tracker
 
-A web-based chore tracking application for Raspberry Pi.
+A web-based task tracking application for Raspberry Pi.
 
 ## Features
 
@@ -31,7 +31,7 @@ http://localhost:5001
 
 ## Usage
 
-- Click "Add Chore" button to add a new task
+- Click "Add Task" button to add a new task
 - Tasks can have an optional date and time
 - Tasks with dates appear on the calendar
 - Click on a calendar day to view tasks for that day
@@ -41,5 +41,5 @@ http://localhost:5001
 
 ## Database
 
-The application uses SQLite database (`chores.db`) which is automatically created on first run. Completed tasks are automatically deleted from the database after 1 month.
+The application uses SQLite database (`tasks.db`) which is automatically created on first run. Completed tasks are automatically deleted from the database after 1 month.
 

@@ -8,7 +8,7 @@
 </head>
 <body>
     <div class="container">
-        <!-- Header with Add Chore button -->
+        <!-- Header with Add Task button -->
         <header>
             <h1>Task Tracker</h1>
             <button class="btn-add" onclick="openAddPopup()">Add Task</button>
@@ -60,15 +60,15 @@
         </div>
     </div>
 
-    <!-- Add/Edit Chore Popup -->
-    <div id="chore-popup" class="popup">
+    <!-- Add/Edit Task Popup -->
+    <div id="task-popup" class="popup">
         <div class="popup-content">
             <span class="close" onclick="closePopup()">&times;</span>
             <h2 id="popup-title">Add Task</h2>
-            <form id="chore-form" onsubmit="saveChore(event)">
+            <form id="task-form" onsubmit="saveTask(event)">
                 <div class="form-group">
                     <label for="task-input">Task *</label>
-                    <input type="text" id="task-input" required>
+                    <textarea id="task-input" rows="1" required></textarea>
                 </div>
                 <div class="form-group">
                     <label for="date-input">Date</label>
@@ -90,7 +90,7 @@
     <div id="day-popup" class="popup">
         <div class="popup-content">
             <span class="close" onclick="closeDayPopup()">&times;</span>
-            <h2 id="day-popup-title">Tasks for <span id="day-date"></span></h2>
+            <h2 id="day-popup-title">Tasks for <span id="day-weekday"></span><br><span id="day-date"></span></h2>
             <div id="day-tasks-content"></div>
         </div>
     </div>

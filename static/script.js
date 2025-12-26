@@ -1,7 +1,7 @@
 let currentDate = new Date();
 let currentMonth = currentDate.getMonth();
 let currentYear = currentDate.getFullYear();
-let editingChoreId = null;
+let editingTaskId = null;
 let showingCompleted = false;
 
 const monthNames = [
@@ -11,10 +11,24 @@ const monthNames = [
 
 const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+// Auto-resize textarea function
+function autoResizeTextarea(textarea) {
+    textarea.style.height = 'auto';
+    textarea.style.height = textarea.scrollHeight + 'px';
+}
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', function() {
     renderCalendar();
     loadTasks();
+    
+    // Set up auto-resize for task input textarea
+    const taskInput = document.getElementById('task-input');
+    if (taskInput) {
+        taskInput.addEventListener('input', function() {
+            autoResizeTextarea(this);
+        });
+    }
 });
 
 function renderCalendar() {
@@ -108,7 +122,7 @@ async function updateCalendarTaskIndicators() {
 
 async function fetchTasks(showCompleted = false) {
     try {
-        const response = await fetch(`/api/chores?completed=${showCompleted}`);
+        const response = await fetch(`/api/tasks?completed=${showCompleted}`);
         const tasks = await response.json();
         return tasks;
     } catch (error) {
@@ -227,7 +241,7 @@ function createTaskElement(task, isCompleted) {
         metaText += metaText ? ` at ${timeStr}` : `Time: ${timeStr}`;
     }
     if (metaText) {
-        meta.textContent = metaText;
+    meta.textContent = metaText;
     }
     
     taskInfo.appendChild(title);
@@ -238,27 +252,31 @@ function createTaskElement(task, isCompleted) {
     
     if (isCompleted) {
         const incompleteBtn = document.createElement('button');
+        incompleteBtn.type = 'button';
         incompleteBtn.className = 'btn-action btn-incomplete';
         incompleteBtn.textContent = 'Mark Incomplete';
         incompleteBtn.onclick = () => markTaskComplete(task.id, false);
         actions.appendChild(incompleteBtn);
     } else {
         const completeBtn = document.createElement('button');
+        completeBtn.type = 'button';
         completeBtn.className = 'btn-action btn-complete';
         completeBtn.textContent = 'Complete';
         completeBtn.onclick = () => markTaskComplete(task.id, true);
         actions.appendChild(completeBtn);
         
         const editBtn = document.createElement('button');
+        editBtn.type = 'button';
         editBtn.className = 'btn-action btn-edit';
         editBtn.textContent = 'Edit';
-        editBtn.onclick = () => editChore(task);
+        editBtn.onclick = () => editTask(task);
         actions.appendChild(editBtn);
         
         const deleteBtn = document.createElement('button');
+        deleteBtn.type = 'button';
         deleteBtn.className = 'btn-action btn-delete';
         deleteBtn.textContent = 'Delete';
-        deleteBtn.onclick = () => deleteChore(task.id);
+        deleteBtn.onclick = () => deleteTask(task.id);
         actions.appendChild(deleteBtn);
     }
     
@@ -277,29 +295,35 @@ function toggleSection(section) {
 }
 
 function openAddPopup() {
-    editingChoreId = null;
+    editingTaskId = null;
     document.getElementById('popup-title').textContent = 'Add Task';
-    document.getElementById('task-input').value = '';
+    const taskInput = document.getElementById('task-input');
+    taskInput.value = '';
+    taskInput.style.height = 'auto';
     document.getElementById('date-input').value = '';
     document.getElementById('time-input').value = '';
-    document.getElementById('chore-popup').classList.add('show');
+    document.getElementById('task-popup').classList.add('show');
 }
 
 function closePopup() {
-    document.getElementById('chore-popup').classList.remove('show');
-    editingChoreId = null;
+    document.getElementById('task-popup').classList.remove('show');
+    editingTaskId = null;
+    const taskInput = document.getElementById('task-input');
+    taskInput.style.height = 'auto';
 }
 
-function editChore(task) {
-    editingChoreId = task.id;
+function editTask(task) {
+    editingTaskId = task.id;
     document.getElementById('popup-title').textContent = 'Edit Task';
-    document.getElementById('task-input').value = task.task;
+    const taskInput = document.getElementById('task-input');
+    taskInput.value = task.task;
+    autoResizeTextarea(taskInput);
     document.getElementById('date-input').value = task.date || '';
     document.getElementById('time-input').value = task.time || '';
-    document.getElementById('chore-popup').classList.add('show');
+    document.getElementById('task-popup').classList.add('show');
 }
 
-async function saveChore(event) {
+async function saveTask(event) {
     event.preventDefault();
     
     const task = document.getElementById('task-input').value;
@@ -307,14 +331,14 @@ async function saveChore(event) {
     const time = document.getElementById('time-input').value || null;
     
     try {
-        if (editingChoreId) {
-            await fetch(`/api/chores/${editingChoreId}`, {
+        if (editingTaskId) {
+            await fetch(`/api/tasks/${editingTaskId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ task, date, time })
             });
         } else {
-            await fetch('/api/chores', {
+            await fetch('/api/tasks', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ task, date, time })
@@ -324,14 +348,14 @@ async function saveChore(event) {
         closePopup();
         loadTasks();
     } catch (error) {
-        console.error('Error saving chore:', error);
-        alert('Error saving chore. Please try again.');
+        console.error('Error saving task:', error);
+        alert('Error saving task. Please try again.');
     }
 }
 
-async function markTaskComplete(choreId, completed) {
+async function markTaskComplete(taskId, completed) {
     try {
-        await fetch(`/api/chores/${choreId}`, {
+        await fetch(`/api/tasks/${taskId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ completed })
@@ -344,13 +368,13 @@ async function markTaskComplete(choreId, completed) {
     }
 }
 
-async function deleteChore(choreId) {
+async function deleteTask(taskId) {
     if (!confirm('Are you sure you want to delete this task?')) {
         return;
     }
     
     try {
-        await fetch(`/api/chores/${choreId}`, {
+        await fetch(`/api/tasks/${taskId}`, {
             method: 'DELETE'
         });
         
@@ -382,18 +406,23 @@ function toggleCompletedTasks() {
 
 async function showDayTasks(dateStr) {
     try {
-        const response = await fetch(`/api/chores/date/${dateStr}`);
+        const response = await fetch(`/api/tasks/date/${dateStr}`);
         const tasks = await response.json();
         
         const popup = document.getElementById('day-popup');
-        const title = document.getElementById('day-date');
+        const weekday = document.getElementById('day-weekday');
+        const dateSpan = document.getElementById('day-date');
         const content = document.getElementById('day-tasks-content');
         
         // Parse date string in local timezone to avoid UTC shift
         const [year, month, day] = dateStr.split('-').map(Number);
         const date = new Date(year, month - 1, day);
-        title.textContent = date.toLocaleDateString('en-US', { 
-            weekday: 'long', 
+        
+        // Set weekday on first line
+        weekday.textContent = date.toLocaleDateString('en-US', { weekday: 'long' }) + ',';
+        
+        // Set date (month, day, year) on second line
+        dateSpan.textContent = date.toLocaleDateString('en-US', { 
             month: 'long', 
             day: 'numeric', 
             year: 'numeric' 
@@ -422,7 +451,7 @@ function closeDayPopup() {
 
 // Close popups when clicking outside
 window.onclick = function(event) {
-    const addPopup = document.getElementById('chore-popup');
+    const addPopup = document.getElementById('task-popup');
     const dayPopup = document.getElementById('day-popup');
     
     if (event.target === addPopup) {
