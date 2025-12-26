@@ -215,7 +215,7 @@ function createTaskElement(task, isCompleted) {
         // Parse date string in local timezone to avoid UTC shift
         const [year, month, day] = task.date.split('-').map(Number);
         const date = new Date(year, month - 1, day);
-        metaText = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+        metaText = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     }
     if (task.time) {
         // Convert 24-hour time to 12-hour AM/PM format
@@ -396,7 +396,7 @@ async function showDayTasks(dateStr) {
             weekday: 'long', 
             month: 'long', 
             day: 'numeric', 
-            year: '2-digit' 
+            year: 'numeric' 
         });
         
         content.innerHTML = '';

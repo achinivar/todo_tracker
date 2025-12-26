@@ -336,6 +336,11 @@ header h1 {
     align-items: center;
 }
 
+.popup.show ~ body,
+body:has(.popup.show) {
+    overflow-x: hidden;
+}
+
 @keyframes fadeIn {
     from { opacity: 0; }
     to { opacity: 1; }
@@ -403,6 +408,8 @@ header h1 {
     border-radius: 8px;
     font-size: 16px;
     transition: border-color 0.2s;
+    min-height: 44px;
+    line-height: 1.5;
 }
 
 .form-group input:focus {
@@ -449,5 +456,255 @@ header h1 {
 #day-tasks-content {
     max-height: 400px;
     overflow-y: auto;
+}
+
+/* Mobile Responsive Styles */
+@media screen and (max-width: 768px) {
+    body {
+        padding: 10px;
+    }
+
+    .container {
+        padding: 15px;
+        border-radius: 15px;
+    }
+
+    header {
+        flex-direction: column;
+        gap: 15px;
+        align-items: stretch;
+    }
+
+    header h1 {
+        font-size: 1.8em;
+        text-align: center;
+    }
+
+    .btn-add {
+        width: 100%;
+        padding: 14px 20px;
+        font-size: 16px;
+    }
+
+    .calendar-header h2 {
+        font-size: 1.3em;
+        min-width: auto;
+    }
+
+    .calendar {
+        gap: 4px;
+        padding: 10px;
+    }
+
+    .calendar-day-header {
+        font-size: 11px;
+        padding: 8px 4px;
+    }
+
+    .calendar-day {
+        padding: 8px 4px;
+        min-height: 45px;
+        font-size: 14px;
+    }
+
+    .tasks-header {
+        flex-direction: column;
+        gap: 15px;
+        align-items: stretch;
+    }
+
+    .tasks-header h2 {
+        font-size: 1.5em;
+    }
+
+    .btn-secondary {
+        width: 100%;
+        padding: 12px 20px;
+    }
+
+    .task-group-header {
+        padding: 12px 15px;
+    }
+
+    .task-group-header h3 {
+        font-size: 1.1em;
+    }
+
+    .task-item {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+        padding: 12px;
+    }
+
+    .task-actions {
+        flex-wrap: wrap;
+        width: 100%;
+        justify-content: stretch;
+    }
+
+    .btn-action {
+        flex: 1;
+        min-width: 80px;
+        padding: 10px 8px;
+        font-size: 13px;
+    }
+
+    .popup {
+        overflow-x: hidden;
+    }
+
+    .popup-content {
+        padding: 20px;
+        width: calc(100% - 20px);
+        max-width: none;
+        margin: 10px;
+        overflow-x: hidden;
+        box-sizing: border-box;
+    }
+
+    #chore-form {
+        width: 100%;
+        box-sizing: border-box;
+        overflow-x: hidden;
+    }
+
+    .form-group {
+        width: 100%;
+        box-sizing: border-box;
+        overflow-x: hidden;
+    }
+
+    .form-group input {
+        width: 100% !important;
+        box-sizing: border-box !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        -webkit-appearance: none;
+        -moz-appearance: textfield;
+    }
+
+    .form-group input[type="date"],
+    .form-group input[type="time"] {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-height: 44px !important;
+        line-height: 1.5 !important;
+    }
+
+    .popup-content h2 {
+        font-size: 1.3em;
+        margin-bottom: 15px;
+    }
+
+    .form-actions {
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .btn-cancel,
+    .btn-save {
+        width: 100%;
+        padding: 12px;
+    }
+
+    .close {
+        right: 15px;
+        top: 15px;
+        font-size: 24px;
+    }
+}
+
+@media screen and (max-width: 480px) {
+    body {
+        padding: 5px;
+    }
+
+    .container {
+        padding: 10px;
+    }
+
+    header h1 {
+        font-size: 1.5em;
+    }
+
+    .calendar-header h2 {
+        font-size: 1.1em;
+    }
+
+    .calendar-day {
+        padding: 6px 2px;
+        min-height: 40px;
+        font-size: 12px;
+    }
+
+    .calendar-day-header {
+        font-size: 10px;
+        padding: 6px 2px;
+    }
+
+    .tasks-header h2 {
+        font-size: 1.3em;
+    }
+
+    .task-group-header h3 {
+        font-size: 1em;
+    }
+
+    .task-title {
+        font-size: 0.95em;
+    }
+
+    .task-meta {
+        font-size: 0.85em;
+    }
+
+    .btn-action {
+        font-size: 12px;
+        padding: 8px 6px;
+    }
+
+    .popup {
+        overflow-x: hidden;
+    }
+
+    .popup-content {
+        width: calc(100% - 10px);
+        margin: 5px;
+        padding: 15px;
+        overflow-x: hidden;
+        box-sizing: border-box;
+    }
+
+    #chore-form {
+        width: 100%;
+        box-sizing: border-box;
+        overflow-x: hidden;
+    }
+
+    .form-group {
+        width: 100%;
+        box-sizing: border-box;
+        overflow-x: hidden;
+    }
+
+    .form-group input {
+        width: 100% !important;
+        box-sizing: border-box !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        min-height: 44px !important;
+        line-height: 1.5 !important;
+        -webkit-appearance: none;
+        -moz-appearance: textfield;
+    }
+
+    .form-group input[type="date"],
+    .form-group input[type="time"] {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-height: 44px !important;
+        line-height: 1.5 !important;
+    }
 }
 
