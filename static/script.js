@@ -166,21 +166,22 @@ function displayTasks(tasks) {
         const taskDate = new Date(year, month - 1, day);
         taskDate.setHours(0, 0, 0, 0);
         
-        if (task.date === todayStr) {
+        if (taskDate <= today) {
+            // Today's tasks and overdue tasks (dates before today)
             todayTasks.push(task);
-        } else if (taskDate > today && taskDate < weekEnd) {
+        } else if (taskDate < weekEnd) {
+            // Tasks for this week (after today)
             weekTasks.push(task);
         } else {
-            // Past dates or future dates beyond this week go to remaining
+            // Future dates beyond this week go to remaining
             remainingTasks.push(task);
         }
     });
     
     renderTaskGroup('today-content', todayTasks);
     renderTaskGroup('week-content', weekTasks);
-    // All Tasks section includes today, this week, and remaining tasks
-    const allTasks = [...todayTasks, ...weekTasks, ...remainingTasks];
-    renderTaskGroup('remaining-content', allTasks);
+    // All Other Tasks section shows only tasks not in Today or This Week
+    renderTaskGroup('remaining-content', remainingTasks);
 }
 
 function displayCompletedTasks(tasks) {
