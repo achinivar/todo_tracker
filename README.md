@@ -1,6 +1,10 @@
 # Task Tracker
 
-A web-based task tracking application for Raspberry Pi.
+A web-based lightweight task tracker that does exactly what it needs to — no accounts, no clutter, no feature creep.
+
+Add tasks (optionally with a date), mark them done, and delete them when they’re no longer needed.
+
+Run this on a raspberry pi or your home server and everyone in the house can track their chores.
 
 ## Features
 
@@ -9,6 +13,8 @@ A web-based task tracking application for Raspberry Pi.
 - **Date-based Organization**: Tasks are organized by today, this week, and remaining
 - **Completed Tasks**: View and restore completed tasks (auto-deleted after 1 month)
 - **Day View**: Click on any calendar day to see all tasks for that day
+
+![Desktop View](Webpage_Screenshot.png)
 
 ## Start the application
 
@@ -38,6 +44,17 @@ The script will:
      ```
      http://raspberrypi.local:5001
      ```
+
+## Make it an iPhone or an Android (PWA) app
+
+For iPhone,
+- Open the website on Safari
+- Tap the 3 dots on the bottom of the page and "Share"
+- Navigate to and tap "Add to Home Screen" 
+
+For Android,
+- Open the website on Chrome
+- Tap the 3 dots on the top of the screen and "Add to Home Screen"
 
 ## Usage
 
