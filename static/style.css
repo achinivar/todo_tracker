@@ -485,6 +485,55 @@ body:has(.popup.show) {
     border-color: #667eea;
 }
 
+.password-input-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.password-input-container input {
+    padding-right: 45px;
+}
+
+.password-toggle {
+    position: absolute;
+    right: 10px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #6c757d;
+    padding: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.2s;
+}
+
+.password-toggle:hover {
+    color: #667eea;
+}
+
+.password-toggle svg {
+    width: 20px;
+    height: 20px;
+}
+
+.error-message {
+    background: #fee;
+    color: #c33;
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+
+.success-message {
+    background: #efe;
+    color: #3c3;
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+
 .form-actions {
     display: flex;
     justify-content: flex-end;
@@ -1069,6 +1118,20 @@ body:has(.popup.show) {
 
 .btn-change-role:hover {
     background: #e0a800;
+}
+
+.btn-change-password-admin {
+    background: #17a2b8;
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 5px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.btn-change-password-admin:hover {
+    background: #138496;
 }
 
 .empty-dashboard {

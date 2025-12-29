@@ -98,6 +98,113 @@ async function checkAccountRequests() {
     }
 }
 
+function openChangePasswordPopup() {
+    const menu = document.getElementById('user-menu');
+    if (menu) {
+        menu.style.display = 'none';
+    }
+    const popup = document.getElementById('change-password-popup');
+    const form = document.getElementById('change-password-form');
+    const errorDiv = document.getElementById('change-password-error');
+    const successDiv = document.getElementById('change-password-success');
+    
+    // Reset form and messages
+    form.reset();
+    errorDiv.style.display = 'none';
+    successDiv.style.display = 'none';
+    
+    popup.classList.add('show');
+}
+
+function closeChangePasswordPopup() {
+    const popup = document.getElementById('change-password-popup');
+    popup.classList.remove('show');
+    const form = document.getElementById('change-password-form');
+    const errorDiv = document.getElementById('change-password-error');
+    const successDiv = document.getElementById('change-password-success');
+    form.reset();
+    errorDiv.style.display = 'none';
+    successDiv.style.display = 'none';
+}
+
+async function handleChangePassword(event) {
+    event.preventDefault();
+    
+    const currentPassword = document.getElementById('current-password').value;
+    const newPassword = document.getElementById('new-password').value;
+    const confirmPassword = document.getElementById('confirm-new-password').value;
+    const errorDiv = document.getElementById('change-password-error');
+    const successDiv = document.getElementById('change-password-success');
+    
+    errorDiv.style.display = 'none';
+    successDiv.style.display = 'none';
+    
+    if (newPassword !== confirmPassword) {
+        errorDiv.textContent = 'New passwords do not match';
+        errorDiv.style.display = 'block';
+        return;
+    }
+    
+    if (newPassword.length < 6) {
+        errorDiv.textContent = 'New password must be at least 6 characters';
+        errorDiv.style.display = 'block';
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/auth/change-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                current_password: currentPassword,
+                new_password: newPassword
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+            errorDiv.textContent = data.error || 'Failed to change password';
+            errorDiv.style.display = 'block';
+            return;
+        }
+        
+        successDiv.textContent = 'Password changed successfully!';
+        successDiv.style.display = 'block';
+        
+        // Clear form and close after 2 seconds
+        setTimeout(() => {
+            closeChangePasswordPopup();
+        }, 2000);
+    } catch (error) {
+        console.error('Error changing password:', error);
+        errorDiv.textContent = 'An error occurred. Please try again.';
+        errorDiv.style.display = 'block';
+    }
+}
+
+function togglePassword(inputId) {
+    const input = document.getElementById(inputId);
+    const button = input.nextElementSibling;
+    const svg = button.querySelector('svg');
+    
+    if (input.type === 'password') {
+        input.type = 'text';
+        // Eye with slash icon
+        svg.innerHTML = `
+            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+            <line x1="1" y1="1" x2="23" y2="23"/>
+        `;
+    } else {
+        input.type = 'password';
+        // Regular eye icon
+        svg.innerHTML = `
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+            <circle cx="12" cy="12" r="3"/>
+        `;
+    }
+}
+
 async function handleLogout() {
     const menu = document.getElementById('user-menu');
     if (menu) {
@@ -601,6 +708,8 @@ window.onclick = function(event) {
     const addPopup = document.getElementById('task-popup');
     const dayPopup = document.getElementById('day-popup');
     const requestsPopup = document.getElementById('requests-popup');
+    const changePasswordPopup = document.getElementById('change-password-popup');
+    const adminChangePasswordPopup = document.getElementById('admin-change-password-popup');
     
     if (event.target === addPopup) {
         closePopup();
@@ -610,6 +719,12 @@ window.onclick = function(event) {
     }
     if (event.target === requestsPopup) {
         closeRequestsPopup();
+    }
+    if (event.target === changePasswordPopup) {
+        closeChangePasswordPopup();
+    }
+    if (event.target === adminChangePasswordPopup) {
+        closeAdminChangePasswordPopup();
     }
 }
 
@@ -766,6 +881,7 @@ async function loadUsers() {
                     <div class="user-actions">
                         ${user.id !== currentUser.id ? `
                             <button class="btn-change-role" onclick="changeUserRole(${user.id}, ${newRole})">${roleBtnText}</button>
+                            <button class="btn-change-password-admin" onclick="openAdminChangePasswordPopup(${user.id}, '${user.username}')">Change Password</button>
                             <button class="btn-delete-user" onclick="deleteUser(${user.id}, '${user.username}')">Delete</button>
                         ` : '<span style="color: #6c757d; font-size: 12px;">Cannot modify own account</span>'}
                     </div>
@@ -830,6 +946,97 @@ async function deleteUser(userId, username) {
     } catch (error) {
         console.error('Error deleting user:', error);
         alert('Error deleting user. Please try again.');
+    }
+}
+
+let adminChangePasswordUserId = null;
+
+function openAdminChangePasswordPopup(userId, username) {
+    adminChangePasswordUserId = userId;
+    const popup = document.getElementById('admin-change-password-popup');
+    const form = document.getElementById('admin-change-password-form');
+    const errorDiv = document.getElementById('admin-change-password-error');
+    const successDiv = document.getElementById('admin-change-password-success');
+    const usernameSpan = document.getElementById('admin-change-password-username');
+    
+    usernameSpan.textContent = username;
+    
+    // Reset form and messages
+    form.reset();
+    errorDiv.style.display = 'none';
+    successDiv.style.display = 'none';
+    
+    popup.classList.add('show');
+}
+
+function closeAdminChangePasswordPopup() {
+    const popup = document.getElementById('admin-change-password-popup');
+    popup.classList.remove('show');
+    const form = document.getElementById('admin-change-password-form');
+    const errorDiv = document.getElementById('admin-change-password-error');
+    const successDiv = document.getElementById('admin-change-password-success');
+    form.reset();
+    errorDiv.style.display = 'none';
+    successDiv.style.display = 'none';
+    adminChangePasswordUserId = null;
+}
+
+async function handleAdminChangePassword(event) {
+    event.preventDefault();
+    
+    if (!isAdmin || !adminChangePasswordUserId) return;
+    
+    const adminPassword = document.getElementById('admin-password').value;
+    const newPassword = document.getElementById('admin-new-password').value;
+    const confirmPassword = document.getElementById('admin-confirm-new-password').value;
+    const errorDiv = document.getElementById('admin-change-password-error');
+    const successDiv = document.getElementById('admin-change-password-success');
+    
+    errorDiv.style.display = 'none';
+    successDiv.style.display = 'none';
+    
+    if (newPassword !== confirmPassword) {
+        errorDiv.textContent = 'New passwords do not match';
+        errorDiv.style.display = 'block';
+        return;
+    }
+    
+    if (newPassword.length < 6) {
+        errorDiv.textContent = 'New password must be at least 6 characters';
+        errorDiv.style.display = 'block';
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/auth/change-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                current_password: adminPassword,
+                new_password: newPassword,
+                target_user_id: adminChangePasswordUserId
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+            errorDiv.textContent = data.error || 'Failed to change password';
+            errorDiv.style.display = 'block';
+            return;
+        }
+        
+        successDiv.textContent = data.message || 'Password changed successfully!';
+        successDiv.style.display = 'block';
+        
+        // Clear form and close after 2 seconds
+        setTimeout(() => {
+            closeAdminChangePasswordPopup();
+        }, 2000);
+    } catch (error) {
+        console.error('Error changing password:', error);
+        errorDiv.textContent = 'An error occurred. Please try again.';
+        errorDiv.style.display = 'block';
     }
 }
 

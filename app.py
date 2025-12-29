@@ -336,6 +336,77 @@ def api_auth_status():
         }
     })
 
+@app.route('/api/auth/change-password', methods=['POST'])
+@login_required
+def change_password():
+    """Change user password"""
+    data = request.json
+    current_password = data.get('current_password')
+    new_password = data.get('new_password')
+    target_user_id = data.get('target_user_id')  # For admin changing another user's password
+    
+    if not new_password:
+        return jsonify({'error': 'New password is required'}), 400
+    
+    if len(new_password) < 6:
+        return jsonify({'error': 'New password must be at least 6 characters'}), 400
+    
+    conn = get_db()
+    admin_id = session['user_id']
+    is_admin = session.get('is_admin', False)
+    
+    # Determine which user's password to change
+    if target_user_id and is_admin:
+        # Admin changing another user's password
+        if not current_password:
+            return jsonify({'error': 'Admin password is required'}), 400
+        
+        # Verify admin's password
+        admin = conn.execute('SELECT * FROM users WHERE id = ?', (admin_id,)).fetchone()
+        if not admin:
+            conn.close()
+            return jsonify({'error': 'Admin not found'}), 404
+        
+        if not check_password_hash(admin['password_hash'], current_password):
+            conn.close()
+            return jsonify({'error': 'Admin password is incorrect'}), 401
+        
+        # Get target user
+        target_user = conn.execute('SELECT * FROM users WHERE id = ?', (target_user_id,)).fetchone()
+        if not target_user:
+            conn.close()
+            return jsonify({'error': 'Target user not found'}), 404
+        
+        # Update target user's password
+        new_password_hash = generate_password_hash(new_password)
+        conn.execute('UPDATE users SET password_hash = ? WHERE id = ?', (new_password_hash, target_user_id))
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'message': f"Password changed successfully for user '{target_user['username']}'"})
+    else:
+        # User changing their own password
+        if not current_password:
+            return jsonify({'error': 'Current password is required'}), 400
+        
+        user = conn.execute('SELECT * FROM users WHERE id = ?', (admin_id,)).fetchone()
+        if not user:
+            conn.close()
+            return jsonify({'error': 'User not found'}), 404
+        
+        # Verify current password
+        if not check_password_hash(user['password_hash'], current_password):
+            conn.close()
+            return jsonify({'error': 'Current password is incorrect'}), 401
+        
+        # Update password
+        new_password_hash = generate_password_hash(new_password)
+        conn.execute('UPDATE users SET password_hash = ? WHERE id = ?', (new_password_hash, admin_id))
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'message': 'Password changed successfully'})
+
 @app.route('/api/account-requests', methods=['GET'])
 @login_required
 @admin_required
