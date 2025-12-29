@@ -607,13 +607,13 @@ def get_users():
 @login_required
 @admin_required
 def get_non_admin_users():
-    """Get all non-admin users for task assignment (admin only)"""
+    """Get all users for task assignment (admin only) - includes both admins and non-admins"""
     conn = get_db()
+    current_user_id = session['user_id']
     users = conn.execute('''
-        SELECT id, username
+        SELECT id, username, is_admin
         FROM users
-        WHERE is_admin = 0
-        ORDER BY username ASC
+        ORDER BY is_admin DESC, username ASC
     ''').fetchall()
     conn.close()
     
@@ -678,21 +678,35 @@ def get_tasks():
     
     # Build visibility filter
     if is_admin:
-        # Admins see: all tasks (visibility='all'), admin-only tasks, their own private tasks,
-        # tasks assigned to any user, and all tasks created by regular users (to ensure admin oversight)
+        # Admins see: 
+        # - Tasks with visibility='all' and not assigned (assigned to all users)
+        # - Tasks with visibility='admins' and not assigned (assigned to all admins)
+        # - Tasks assigned to non-admins
+        # - Tasks assigned to admins that are NOT private (visibility != 'private')
+        # - Their own private tasks (visibility='private' AND created_by = user_id)
+        # - All tasks created by regular users (to ensure admin oversight)
         visibility_filter = '''
-            (visibility = 'all' OR visibility = 'admins' OR 
+            ((visibility = 'all' AND assigned_to IS NULL) OR
+             (visibility = 'admins' AND assigned_to IS NULL) OR
+             (assigned_to IS NOT NULL AND assigned_to IN (SELECT id FROM users WHERE is_admin = 0)) OR
+             (assigned_to IS NOT NULL AND assigned_to IN (SELECT id FROM users WHERE is_admin = 1) AND visibility != 'private') OR
              (visibility = 'private' AND created_by = ?) OR
-             assigned_to IS NOT NULL OR
              (created_by IN (SELECT id FROM users WHERE is_admin = 0)))
         '''
         params = (user_id,)
     else:
-        # Regular users see: all tasks (visibility='all' that are not assigned), tasks assigned to them, and their own tasks
+        # Regular users see: 
+        # - Tasks with visibility='all' that are not assigned to anyone (global tasks, typically created by admins)
+        # - Tasks assigned to them
+        # - Tasks they created (their own tasks)
+        # They should NOT see tasks created by other non-admins unless assigned to them
+        # Note: Tasks created by non-admins should have assigned_to = created_by, so they won't match the first condition
         visibility_filter = '''
-            ((visibility = 'all' AND (assigned_to IS NULL OR assigned_to = ?)) OR assigned_to = ? OR (created_by = ? AND visibility != 'admins'))
+            ((visibility = 'all' AND assigned_to IS NULL AND created_by IN (SELECT id FROM users WHERE is_admin = 1)) OR 
+             assigned_to = ? OR 
+             (created_by = ? AND visibility != 'admins'))
         '''
-        params = (user_id, user_id, user_id)
+        params = (user_id, user_id)
     
     if show_completed:
         query = f'''
@@ -741,21 +755,26 @@ def create_task():
     visibility = data.get('visibility', 'all')
     
     if not is_admin:
-        # Non-admin users: no assignment dropdown, task visible to them and admins
+        # Non-admin users: no assignment dropdown, task visible only to them and admins
+        # Assign task to the user so only they and admins can see it
         visibility = 'all'
-        assigned_to = None
+        assigned_to = user_id
     else:
         # Admin users: can assign to specific users or use visibility options
         if assigned_to:
-            # If assigned to a user, validate the user exists and is not admin
+            # If assigned to a user, validate the user exists
             assigned_user = conn.execute('SELECT id, is_admin FROM users WHERE id = ?', (assigned_to,)).fetchone()
             if not assigned_user:
                 conn.close()
                 return jsonify({'error': 'Assigned user not found'}), 400
+            # If assigned to an admin, use 'admins' visibility unless it's private
             if assigned_user['is_admin']:
-                conn.close()
-                return jsonify({'error': 'Cannot assign tasks to admin users'}), 400
-            visibility = 'all'  # When assigned, use 'all' visibility
+                if visibility == 'private':
+                    visibility = 'private'
+                else:
+                    visibility = 'admins'
+            else:
+                visibility = 'all'  # When assigned to non-admin, use 'all' visibility
         else:
             # Validate visibility for admins
             if visibility not in ['all', 'admins', 'private']:
@@ -827,15 +846,19 @@ def update_task(task_id):
         else:
             # Admin users can change assignment or visibility
             if assigned_to:
-                # If assigned to a user, validate the user exists and is not admin
+                # If assigned to a user, validate the user exists
                 assigned_user = conn.execute('SELECT id, is_admin FROM users WHERE id = ?', (assigned_to,)).fetchone()
                 if not assigned_user:
                     conn.close()
                     return jsonify({'error': 'Assigned user not found'}), 400
+                # If assigned to an admin, use 'admins' visibility unless it's private
                 if assigned_user['is_admin']:
-                    conn.close()
-                    return jsonify({'error': 'Cannot assign tasks to admin users'}), 400
-                visibility = 'all'  # When assigned, use 'all' visibility
+                    if visibility == 'private':
+                        visibility = 'private'
+                    else:
+                        visibility = 'admins'
+                else:
+                    visibility = 'all'  # When assigned to non-admin, use 'all' visibility
             else:
                 # Validate visibility for admins
                 if visibility not in ['all', 'admins', 'private']:
@@ -885,21 +908,35 @@ def get_tasks_by_date(date):
     
     # Build visibility filter
     if is_admin:
-        # Admins see: all tasks (visibility='all'), admin-only tasks, their own private tasks,
-        # tasks assigned to any user, and all tasks created by regular users (to ensure admin oversight)
+        # Admins see: 
+        # - Tasks with visibility='all' and not assigned (assigned to all users)
+        # - Tasks with visibility='admins' and not assigned (assigned to all admins)
+        # - Tasks assigned to non-admins
+        # - Tasks assigned to admins that are NOT private (visibility != 'private')
+        # - Their own private tasks (visibility='private' AND created_by = user_id)
+        # - All tasks created by regular users (to ensure admin oversight)
         visibility_filter = '''
-            (visibility = 'all' OR visibility = 'admins' OR 
+            ((visibility = 'all' AND assigned_to IS NULL) OR
+             (visibility = 'admins' AND assigned_to IS NULL) OR
+             (assigned_to IS NOT NULL AND assigned_to IN (SELECT id FROM users WHERE is_admin = 0)) OR
+             (assigned_to IS NOT NULL AND assigned_to IN (SELECT id FROM users WHERE is_admin = 1) AND visibility != 'private') OR
              (visibility = 'private' AND created_by = ?) OR
-             assigned_to IS NOT NULL OR
              (created_by IN (SELECT id FROM users WHERE is_admin = 0)))
         '''
         params = (date, user_id)
     else:
-        # Regular users see: all tasks (visibility='all' that are not assigned), tasks assigned to them, and their own tasks
+        # Regular users see: 
+        # - Tasks with visibility='all' that are not assigned to anyone (global tasks, typically created by admins)
+        # - Tasks assigned to them
+        # - Tasks they created (their own tasks)
+        # They should NOT see tasks created by other non-admins unless assigned to them
+        # Note: Tasks created by non-admins should have assigned_to = created_by, so they won't match the first condition
         visibility_filter = '''
-            ((visibility = 'all' AND (assigned_to IS NULL OR assigned_to = ?)) OR assigned_to = ? OR (created_by = ? AND visibility != 'admins'))
+            ((visibility = 'all' AND assigned_to IS NULL AND created_by IN (SELECT id FROM users WHERE is_admin = 1)) OR 
+             assigned_to = ? OR 
+             (created_by = ? AND visibility != 'admins'))
         '''
-        params = (date, user_id, user_id, user_id)
+        params = (date, user_id, user_id)
     
     tasks = conn.execute(f'''
         SELECT t.*, u.username as creator_username, u2.username as assigned_to_username,

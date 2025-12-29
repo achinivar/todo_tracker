@@ -405,11 +405,12 @@ async function setupAdminTaskFilter() {
             filterSelect.innerHTML = '';
             defaultOptions.forEach(opt => filterSelect.appendChild(opt));
             
-            // Add non-admin users
+            // Add all users (admins and non-admins)
             users.forEach(user => {
                 const option = document.createElement('option');
                 option.value = `user_${user.id}`;
-                option.textContent = user.username;
+                const label = user.is_admin ? `${user.username} (Admin)` : user.username;
+                option.textContent = label;
                 filterSelect.appendChild(option);
             });
         }
@@ -440,8 +441,8 @@ function applyTaskFilterToTasks(tasks) {
     
     switch (currentTaskFilter) {
         case 'admins':
-            // Tasks with visibility='admins'
-            return tasks.filter(task => task.visibility === 'admins');
+            // Tasks with visibility='admins' or assigned to admins
+            return tasks.filter(task => task.visibility === 'admins' || (task.assigned_to && task.assigned_to_username && task.assigned_to_username.includes('(Admin)')));
         
         case 'private':
             // Tasks with visibility='private'
@@ -570,7 +571,7 @@ function createTaskElement(task, isCompleted) {
     }
     if (task.visibility && task.visibility !== 'all' && !task.assigned_to) {
         const visibilityLabels = {
-            'admins': 'Admins only',
+            'admins': 'All Admins',
             'private': 'Private'
         };
         infoParts.push(visibilityLabels[task.visibility] || task.visibility);
@@ -673,7 +674,7 @@ async function openAddPopup() {
         assignGroup.style.display = 'block';
         assignInput.value = '';
         
-        // Load non-admin users and populate dropdown
+        // Load all users and populate dropdown
         try {
             const response = await fetch('/api/users/non-admin');
             if (response.ok) {
@@ -681,19 +682,20 @@ async function openAddPopup() {
                 // Clear existing options except the first three
                 assignInput.innerHTML = `
                     <option value="">All Users</option>
-                    <option value="admins">Admins only</option>
+                    <option value="admins">All Admins</option>
                     <option value="private">Private</option>
                 `;
-                // Add non-admin users
+                // Add all users (admins and non-admins)
                 users.forEach(user => {
                     const option = document.createElement('option');
                     option.value = user.id;
-                    option.textContent = user.username;
+                    const label = user.is_admin ? `${user.username} (Admin)` : user.username;
+                    option.textContent = label;
                     assignInput.appendChild(option);
                 });
             }
         } catch (error) {
-            console.error('Error loading non-admin users:', error);
+            console.error('Error loading users:', error);
         }
     } else {
         assignGroup.style.display = 'none';
@@ -724,7 +726,7 @@ async function editTask(task) {
     if (isAdmin) {
         assignGroup.style.display = 'block';
         
-        // Load non-admin users and populate dropdown
+        // Load all users and populate dropdown
         try {
             const response = await fetch('/api/users/non-admin');
             if (response.ok) {
@@ -732,14 +734,15 @@ async function editTask(task) {
                 // Clear existing options except the first three
                 assignInput.innerHTML = `
                     <option value="">All Users</option>
-                    <option value="admins">Admins only</option>
+                    <option value="admins">All Admins</option>
                     <option value="private">Private</option>
                 `;
-                // Add non-admin users
+                // Add all users (admins and non-admins)
                 users.forEach(user => {
                     const option = document.createElement('option');
                     option.value = user.id;
-                    option.textContent = user.username;
+                    const label = user.is_admin ? `${user.username} (Admin)` : user.username;
+                    option.textContent = label;
                     assignInput.appendChild(option);
                 });
                 
@@ -751,7 +754,7 @@ async function editTask(task) {
                 }
             }
         } catch (error) {
-            console.error('Error loading non-admin users:', error);
+            console.error('Error loading users:', error);
         }
     } else {
         assignGroup.style.display = 'none';
@@ -774,10 +777,12 @@ async function saveTask(event) {
         const assignInput = document.getElementById('assign-input');
         const assignValue = assignInput.value;
         
-        // Check if a user ID was selected (numeric value)
+        // Check if a user ID was selected
         if (assignValue && !isNaN(assignValue) && assignValue !== '') {
+            // A user ID was selected
             assigned_to = parseInt(assignValue);
-            visibility = 'all'; // When assigned, use 'all' visibility
+            // Visibility will be determined by backend based on user type
+            visibility = 'all'; // Default, backend will adjust
         } else {
             // Use visibility options (all, admins, private)
             visibility = assignValue || 'all';
