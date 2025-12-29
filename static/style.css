@@ -1010,6 +1010,45 @@ body:has(.popup.show) {
     flex-shrink: 0;
 }
 
+.admin-task-filter {
+    margin-bottom: 20px;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 10px;
+    border: 1px solid #e0e0e0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.admin-task-filter label {
+    font-weight: 600;
+    color: #667eea;
+    font-size: 14px;
+}
+
+.admin-task-filter select {
+    padding: 8px 12px;
+    border: 2px solid #e0e0e0;
+    border-radius: 5px;
+    font-size: 14px;
+    background: white;
+    color: #333;
+    cursor: pointer;
+    min-width: 200px;
+    transition: border-color 0.2s;
+}
+
+.admin-task-filter select:hover {
+    border-color: #667eea;
+}
+
+.admin-task-filter select:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
 .admin-dashboard {
     margin-top: 30px;
     padding: 20px;

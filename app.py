@@ -61,6 +61,10 @@ def init_db():
             # Set visibility to 'all' for existing tasks
             conn.execute('UPDATE tasks SET visibility = "all" WHERE visibility IS NULL')
         
+        if 'assigned_to' not in columns:
+            conn.execute('ALTER TABLE tasks ADD COLUMN assigned_to INTEGER')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_assigned_to ON tasks(assigned_to)')
+        
         conn.commit()
     except sqlite3.OperationalError:
         # Columns already exist, ignore
@@ -591,9 +595,25 @@ def get_users():
     """Get all users (admin only)"""
     conn = get_db()
     users = conn.execute('''
-        SELECT id, username, is_admin, created_at 
-        FROM users 
+        SELECT id, username, is_admin, created_at
+        FROM users
         ORDER BY created_at DESC
+    ''').fetchall()
+    conn.close()
+    
+    return jsonify([dict(user) for user in users])
+
+@app.route('/api/users/non-admin', methods=['GET'])
+@login_required
+@admin_required
+def get_non_admin_users():
+    """Get all non-admin users for task assignment (admin only)"""
+    conn = get_db()
+    users = conn.execute('''
+        SELECT id, username
+        FROM users
+        WHERE is_admin = 0
+        ORDER BY username ASC
     ''').fetchall()
     conn.close()
     
@@ -659,42 +679,45 @@ def get_tasks():
     # Build visibility filter
     if is_admin:
         # Admins see: all tasks (visibility='all'), admin-only tasks, their own private tasks,
-        # and all tasks created by regular users (to ensure admin oversight)
+        # tasks assigned to any user, and all tasks created by regular users (to ensure admin oversight)
         visibility_filter = '''
             (visibility = 'all' OR visibility = 'admins' OR 
-             (visibility = 'private' AND user_id = ?) OR
+             (visibility = 'private' AND created_by = ?) OR
+             assigned_to IS NOT NULL OR
              (created_by IN (SELECT id FROM users WHERE is_admin = 0)))
         '''
         params = (user_id,)
     else:
-        # Regular users see: all tasks (all users) and their own tasks
+        # Regular users see: all tasks (visibility='all' that are not assigned), tasks assigned to them, and their own tasks
         visibility_filter = '''
-            (visibility = 'all' OR user_id = ?)
+            ((visibility = 'all' AND (assigned_to IS NULL OR assigned_to = ?)) OR assigned_to = ? OR (created_by = ? AND visibility != 'admins'))
         '''
-        params = (user_id,)
+        params = (user_id, user_id, user_id)
     
     if show_completed:
         query = f'''
-            SELECT t.*, u.username as creator_username,
+            SELECT t.*, u.username as creator_username, u2.username as assigned_to_username,
                    CASE WHEN EXISTS (
                        SELECT 1 FROM task_completion_requests tcr 
                        WHERE tcr.task_id = t.id AND tcr.status = 'pending'
                    ) THEN 1 ELSE 0 END as has_pending_request
             FROM tasks t
             LEFT JOIN users u ON t.created_by = u.id
+            LEFT JOIN users u2 ON t.assigned_to = u2.id
             WHERE completed = 1 AND ({visibility_filter})
             ORDER BY completed_at DESC
         '''
         tasks = conn.execute(query, params).fetchall()
     else:
         query = f'''
-            SELECT t.*, u.username as creator_username,
+            SELECT t.*, u.username as creator_username, u2.username as assigned_to_username,
                    CASE WHEN EXISTS (
                        SELECT 1 FROM task_completion_requests tcr 
                        WHERE tcr.task_id = t.id AND tcr.status = 'pending'
                    ) THEN 1 ELSE 0 END as has_pending_request
             FROM tasks t
             LEFT JOIN users u ON t.created_by = u.id
+            LEFT JOIN users u2 ON t.assigned_to = u2.id
             WHERE completed = 0 AND ({visibility_filter})
             ORDER BY date ASC, time ASC, created_at ASC
         '''
@@ -713,19 +736,36 @@ def create_task():
     is_admin = session.get('is_admin', False)
     created_by = user_id
     
-    # Set visibility: admins can set it, regular users default to 'all'
+    # Handle assignment/visibility
+    assigned_to = data.get('assigned_to', None)
     visibility = data.get('visibility', 'all')
-    if not is_admin:
-        visibility = 'all'  # Regular users can only create 'all' tasks
     
-    # Validate visibility for admins
-    if is_admin and visibility not in ['all', 'admins', 'private']:
+    if not is_admin:
+        # Non-admin users: no assignment dropdown, task visible to them and admins
         visibility = 'all'
+        assigned_to = None
+    else:
+        # Admin users: can assign to specific users or use visibility options
+        if assigned_to:
+            # If assigned to a user, validate the user exists and is not admin
+            assigned_user = conn.execute('SELECT id, is_admin FROM users WHERE id = ?', (assigned_to,)).fetchone()
+            if not assigned_user:
+                conn.close()
+                return jsonify({'error': 'Assigned user not found'}), 400
+            if assigned_user['is_admin']:
+                conn.close()
+                return jsonify({'error': 'Cannot assign tasks to admin users'}), 400
+            visibility = 'all'  # When assigned, use 'all' visibility
+        else:
+            # Validate visibility for admins
+            if visibility not in ['all', 'admins', 'private']:
+                visibility = 'all'
+            assigned_to = None
     
     conn.execute('''
-        INSERT INTO tasks (task, date, time, user_id, created_by, visibility)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ''', (data['task'], data.get('date'), data.get('time'), user_id, created_by, visibility))
+        INSERT INTO tasks (task, date, time, user_id, created_by, visibility, assigned_to)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    ''', (data['task'], data.get('date'), data.get('time'), user_id, created_by, visibility, assigned_to))
     
     conn.commit()
     task_id = conn.lastrowid
@@ -777,18 +817,36 @@ def update_task(task_id):
         ''', (1 if completed else 0, completed_at, task_id))
     else:
         # Update task details
+        assigned_to = data.get('assigned_to', task.get('assigned_to'))
         visibility = data.get('visibility', task['visibility'])
-        if not is_admin:
-            visibility = task['visibility']  # Regular users can't change visibility
         
-        if is_admin and visibility not in ['all', 'admins', 'private']:
+        if not is_admin:
+            # Regular users can't change assignment or visibility
             visibility = task['visibility']
+            assigned_to = task.get('assigned_to')
+        else:
+            # Admin users can change assignment or visibility
+            if assigned_to:
+                # If assigned to a user, validate the user exists and is not admin
+                assigned_user = conn.execute('SELECT id, is_admin FROM users WHERE id = ?', (assigned_to,)).fetchone()
+                if not assigned_user:
+                    conn.close()
+                    return jsonify({'error': 'Assigned user not found'}), 400
+                if assigned_user['is_admin']:
+                    conn.close()
+                    return jsonify({'error': 'Cannot assign tasks to admin users'}), 400
+                visibility = 'all'  # When assigned, use 'all' visibility
+            else:
+                # Validate visibility for admins
+                if visibility not in ['all', 'admins', 'private']:
+                    visibility = task['visibility']
+                assigned_to = None
         
         conn.execute('''
             UPDATE tasks 
-            SET task = ?, date = ?, time = ?, visibility = ?
+            SET task = ?, date = ?, time = ?, visibility = ?, assigned_to = ?
             WHERE id = ?
-        ''', (data['task'], data.get('date'), data.get('time'), visibility, task_id))
+        ''', (data['task'], data.get('date'), data.get('time'), visibility, assigned_to, task_id))
     
     conn.commit()
     conn.close()
@@ -828,28 +886,30 @@ def get_tasks_by_date(date):
     # Build visibility filter
     if is_admin:
         # Admins see: all tasks (visibility='all'), admin-only tasks, their own private tasks,
-        # and all tasks created by regular users (to ensure admin oversight)
+        # tasks assigned to any user, and all tasks created by regular users (to ensure admin oversight)
         visibility_filter = '''
             (visibility = 'all' OR visibility = 'admins' OR 
-             (visibility = 'private' AND user_id = ?) OR
+             (visibility = 'private' AND created_by = ?) OR
+             assigned_to IS NOT NULL OR
              (created_by IN (SELECT id FROM users WHERE is_admin = 0)))
         '''
         params = (date, user_id)
     else:
-        # Regular users see: all tasks and their own tasks
+        # Regular users see: all tasks (visibility='all' that are not assigned), tasks assigned to them, and their own tasks
         visibility_filter = '''
-            (visibility = 'all' OR user_id = ?)
+            ((visibility = 'all' AND (assigned_to IS NULL OR assigned_to = ?)) OR assigned_to = ? OR (created_by = ? AND visibility != 'admins'))
         '''
-        params = (date, user_id)
+        params = (date, user_id, user_id, user_id)
     
     tasks = conn.execute(f'''
-        SELECT t.*, u.username as creator_username,
+        SELECT t.*, u.username as creator_username, u2.username as assigned_to_username,
                CASE WHEN EXISTS (
                    SELECT 1 FROM task_completion_requests tcr 
                    WHERE tcr.task_id = t.id AND tcr.status = 'pending'
                ) THEN 1 ELSE 0 END as has_pending_request
         FROM tasks t
         LEFT JOIN users u ON t.created_by = u.id
+        LEFT JOIN users u2 ON t.assigned_to = u2.id
         WHERE date = ? AND completed = 0 AND ({visibility_filter})
         ORDER BY time ASC, created_at ASC
     ''', params).fetchall()

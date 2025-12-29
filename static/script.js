@@ -5,6 +5,8 @@ let editingTaskId = null;
 let showingCompleted = false;
 let currentUser = null;
 let isAdmin = false;
+let currentTaskFilter = 'all';
+let allTasks = []; // Store all tasks for filtering
 
 const monthNames = [
     "January", "February", "March", "April", "May", "June",
@@ -38,6 +40,7 @@ async function checkAuth() {
             checkAccountRequests();
             checkTaskCompletionRequests();
             loadUsers();
+            setupAdminTaskFilter();
         }
         
         return true;
@@ -373,12 +376,84 @@ async function fetchTasks(showCompleted = false) {
 
 async function loadTasks() {
     const tasks = await fetchTasks(showingCompleted);
+    allTasks = tasks; // Store all tasks
     
     if (showingCompleted) {
         displayCompletedTasks(tasks);
     } else {
-        displayTasks(tasks);
+        const filteredTasks = isAdmin ? applyTaskFilterToTasks(tasks) : tasks;
+        displayTasks(filteredTasks);
         updateCalendarTaskIndicators();
+    }
+}
+
+async function setupAdminTaskFilter() {
+    const filterContainer = document.getElementById('admin-task-filter');
+    const filterSelect = document.getElementById('task-filter-select');
+    
+    if (!filterContainer || !filterSelect) return;
+    
+    filterContainer.style.display = 'block';
+    
+    // Load non-admin users and add them to the filter
+    try {
+        const response = await fetch('/api/users/non-admin');
+        if (response.ok) {
+            const users = await response.json();
+            // Clear existing user options (keep the first 3 default options)
+            const defaultOptions = Array.from(filterSelect.querySelectorAll('option')).slice(0, 3);
+            filterSelect.innerHTML = '';
+            defaultOptions.forEach(opt => filterSelect.appendChild(opt));
+            
+            // Add non-admin users
+            users.forEach(user => {
+                const option = document.createElement('option');
+                option.value = `user_${user.id}`;
+                option.textContent = user.username;
+                filterSelect.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('Error loading non-admin users for filter:', error);
+    }
+}
+
+function applyTaskFilter() {
+    const filterSelect = document.getElementById('task-filter-select');
+    if (!filterSelect) return;
+    
+    currentTaskFilter = filterSelect.value;
+    
+    if (showingCompleted) {
+        displayCompletedTasks(allTasks);
+    } else {
+        const filteredTasks = applyTaskFilterToTasks(allTasks);
+        displayTasks(filteredTasks);
+        updateCalendarTaskIndicators();
+    }
+}
+
+function applyTaskFilterToTasks(tasks) {
+    if (!isAdmin || currentTaskFilter === 'all') {
+        return tasks;
+    }
+    
+    switch (currentTaskFilter) {
+        case 'admins':
+            // Tasks with visibility='admins'
+            return tasks.filter(task => task.visibility === 'admins');
+        
+        case 'private':
+            // Tasks with visibility='private'
+            return tasks.filter(task => task.visibility === 'private');
+        
+        default:
+            // Filter by user assignment (format: user_<id>)
+            if (currentTaskFilter.startsWith('user_')) {
+                const userId = parseInt(currentTaskFilter.split('_')[1]);
+                return tasks.filter(task => task.assigned_to === userId);
+            }
+            return tasks;
     }
 }
 
@@ -425,15 +500,18 @@ function displayTasks(tasks) {
 }
 
 function displayCompletedTasks(tasks) {
+    // Apply filter if admin
+    const filteredTasks = isAdmin ? applyTaskFilterToTasks(tasks) : tasks;
+    
     const container = document.getElementById('completed-content');
     container.innerHTML = '';
     
-    if (tasks.length === 0) {
+    if (filteredTasks.length === 0) {
         container.innerHTML = '<div class="empty-message">No completed tasks</div>';
         return;
     }
     
-    tasks.forEach(task => {
+    filteredTasks.forEach(task => {
         container.appendChild(createTaskElement(task, true));
     });
 }
@@ -482,12 +560,15 @@ function createTaskElement(task, isCompleted) {
         metaText += metaText ? ` at ${timeStr}` : `Time: ${timeStr}`;
     }
     
-    // Add creator and visibility info
+    // Add creator, assignment, and visibility info
     const infoParts = [];
     if (task.creator_username) {
         infoParts.push(`by ${task.creator_username}`);
     }
-    if (task.visibility && task.visibility !== 'all') {
+    if (task.assigned_to_username) {
+        infoParts.push(`assigned to ${task.assigned_to_username}`);
+    }
+    if (task.visibility && task.visibility !== 'all' && !task.assigned_to) {
         const visibilityLabels = {
             'admins': 'Admins only',
             'private': 'Private'
@@ -576,7 +657,7 @@ function toggleSection(section) {
     content.querySelector('.task-group-content').classList.toggle('collapsed');
 }
 
-function openAddPopup() {
+async function openAddPopup() {
     editingTaskId = null;
     document.getElementById('popup-title').textContent = 'Add Task';
     const taskInput = document.getElementById('task-input');
@@ -585,14 +666,37 @@ function openAddPopup() {
     document.getElementById('date-input').value = '';
     document.getElementById('time-input').value = '';
     
-    // Show/hide visibility dropdown for admins
-    const visibilityGroup = document.getElementById('visibility-group');
-    const visibilityInput = document.getElementById('visibility-input');
+    // Show/hide assign dropdown for admins only
+    const assignGroup = document.getElementById('assign-group');
+    const assignInput = document.getElementById('assign-input');
     if (isAdmin) {
-        visibilityGroup.style.display = 'block';
-        visibilityInput.value = 'all';
+        assignGroup.style.display = 'block';
+        assignInput.value = '';
+        
+        // Load non-admin users and populate dropdown
+        try {
+            const response = await fetch('/api/users/non-admin');
+            if (response.ok) {
+                const users = await response.json();
+                // Clear existing options except the first three
+                assignInput.innerHTML = `
+                    <option value="">All Users</option>
+                    <option value="admins">Admins only</option>
+                    <option value="private">Private</option>
+                `;
+                // Add non-admin users
+                users.forEach(user => {
+                    const option = document.createElement('option');
+                    option.value = user.id;
+                    option.textContent = user.username;
+                    assignInput.appendChild(option);
+                });
+            }
+        } catch (error) {
+            console.error('Error loading non-admin users:', error);
+        }
     } else {
-        visibilityGroup.style.display = 'none';
+        assignGroup.style.display = 'none';
     }
     
     document.getElementById('task-popup').classList.add('show');
@@ -605,7 +709,7 @@ function closePopup() {
     taskInput.style.height = 'auto';
 }
 
-function editTask(task) {
+async function editTask(task) {
     editingTaskId = task.id;
     document.getElementById('popup-title').textContent = 'Edit Task';
     const taskInput = document.getElementById('task-input');
@@ -614,14 +718,43 @@ function editTask(task) {
     document.getElementById('date-input').value = task.date || '';
     document.getElementById('time-input').value = task.time || '';
     
-    // Show/hide visibility dropdown for admins
-    const visibilityGroup = document.getElementById('visibility-group');
-    const visibilityInput = document.getElementById('visibility-input');
+    // Show/hide assign dropdown for admins only
+    const assignGroup = document.getElementById('assign-group');
+    const assignInput = document.getElementById('assign-input');
     if (isAdmin) {
-        visibilityGroup.style.display = 'block';
-        visibilityInput.value = task.visibility || 'all';
+        assignGroup.style.display = 'block';
+        
+        // Load non-admin users and populate dropdown
+        try {
+            const response = await fetch('/api/users/non-admin');
+            if (response.ok) {
+                const users = await response.json();
+                // Clear existing options except the first three
+                assignInput.innerHTML = `
+                    <option value="">All Users</option>
+                    <option value="admins">Admins only</option>
+                    <option value="private">Private</option>
+                `;
+                // Add non-admin users
+                users.forEach(user => {
+                    const option = document.createElement('option');
+                    option.value = user.id;
+                    option.textContent = user.username;
+                    assignInput.appendChild(option);
+                });
+                
+                // Set the current value
+                if (task.assigned_to) {
+                    assignInput.value = task.assigned_to;
+                } else {
+                    assignInput.value = task.visibility || 'all';
+                }
+            }
+        } catch (error) {
+            console.error('Error loading non-admin users:', error);
+        }
     } else {
-        visibilityGroup.style.display = 'none';
+        assignGroup.style.display = 'none';
     }
     
     document.getElementById('task-popup').classList.add('show');
@@ -633,20 +766,46 @@ async function saveTask(event) {
     const task = document.getElementById('task-input').value;
     const date = document.getElementById('date-input').value || null;
     const time = document.getElementById('time-input').value || null;
-    const visibility = isAdmin ? (document.getElementById('visibility-input').value || 'all') : 'all';
+    
+    let assigned_to = null;
+    let visibility = 'all';
+    
+    if (isAdmin) {
+        const assignInput = document.getElementById('assign-input');
+        const assignValue = assignInput.value;
+        
+        // Check if a user ID was selected (numeric value)
+        if (assignValue && !isNaN(assignValue) && assignValue !== '') {
+            assigned_to = parseInt(assignValue);
+            visibility = 'all'; // When assigned, use 'all' visibility
+        } else {
+            // Use visibility options (all, admins, private)
+            visibility = assignValue || 'all';
+            assigned_to = null;
+        }
+    } else {
+        // Non-admin users: no assignment, visibility is 'all'
+        visibility = 'all';
+        assigned_to = null;
+    }
+    
+    const taskData = { task, date, time, visibility };
+    if (assigned_to !== null) {
+        taskData.assigned_to = assigned_to;
+    }
     
     try {
         if (editingTaskId) {
             await fetch(`/api/tasks/${editingTaskId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ task, date, time, visibility })
+                body: JSON.stringify(taskData)
             });
         } else {
             await fetch('/api/tasks', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ task, date, time, visibility })
+                body: JSON.stringify(taskData)
             });
         }
         
