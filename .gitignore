@@ -26,3 +26,6 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
+
+# Secret key
+.secret_key

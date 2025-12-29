@@ -3,6 +3,8 @@ let currentMonth = currentDate.getMonth();
 let currentYear = currentDate.getFullYear();
 let editingTaskId = null;
 let showingCompleted = false;
+let currentUser = null;
+let isAdmin = false;
 
 const monthNames = [
     "January", "February", "March", "April", "May", "June",
@@ -17,8 +19,106 @@ function autoResizeTextarea(textarea) {
     textarea.style.height = textarea.scrollHeight + 'px';
 }
 
+// Authentication functions
+async function checkAuth() {
+    try {
+        const response = await fetch('/api/auth/status');
+        const data = await response.json();
+        
+        if (!data.authenticated) {
+            window.location.href = '/login';
+            return false;
+        }
+        
+        currentUser = data.user;
+        isAdmin = currentUser.is_admin;
+        updateUserUI();
+        
+        if (isAdmin) {
+            checkAccountRequests();
+            loadUsers();
+        }
+        
+        return true;
+    } catch (error) {
+        console.error('Error checking auth:', error);
+        window.location.href = '/login';
+        return false;
+    }
+}
+
+function updateUserUI() {
+    const usernameDisplay = document.getElementById('user-menu-username');
+    const adminMenuItem = document.getElementById('user-menu-admin');
+    
+    if (usernameDisplay && currentUser) {
+        usernameDisplay.textContent = currentUser.username;
+    }
+    
+    if (adminMenuItem) {
+        adminMenuItem.style.display = isAdmin ? 'block' : 'none';
+    }
+}
+
+function toggleUserMenu() {
+    const menu = document.getElementById('user-menu');
+    if (menu) {
+        const isVisible = menu.style.display === 'block';
+        menu.style.display = isVisible ? 'none' : 'block';
+    }
+}
+
+// Close user menu when clicking outside
+document.addEventListener('click', function(event) {
+    const avatarContainer = document.querySelector('.user-avatar-container');
+    const menu = document.getElementById('user-menu');
+    
+    if (avatarContainer && menu && !avatarContainer.contains(event.target)) {
+        menu.style.display = 'none';
+    }
+});
+
+async function checkAccountRequests() {
+    try {
+        const response = await fetch('/api/account-requests');
+        if (!response.ok) return;
+        
+        const requests = await response.json();
+        const notification = document.getElementById('admin-notification');
+        const notificationText = document.getElementById('notification-text');
+        
+        if (requests.length > 0) {
+            notification.style.display = 'block';
+            notificationText.textContent = `You have ${requests.length} pending account request${requests.length > 1 ? 's' : ''}`;
+        } else {
+            notification.style.display = 'none';
+        }
+    } catch (error) {
+        console.error('Error checking account requests:', error);
+    }
+}
+
+async function handleLogout() {
+    const menu = document.getElementById('user-menu');
+    if (menu) {
+        menu.style.display = 'none';
+    }
+    
+    try {
+        await fetch('/api/auth/logout', { method: 'POST' });
+        window.location.href = '/login';
+    } catch (error) {
+        console.error('Error logging out:', error);
+        window.location.href = '/login';
+    }
+}
+
 // Initialize on page load
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', async function() {
+    // Check authentication first
+    const authenticated = await checkAuth();
+    if (!authenticated) return;
+    
     renderCalendar();
     loadTasks();
     
@@ -241,8 +341,27 @@ function createTaskElement(task, isCompleted) {
         const timeStr = `${displayHours}:${displayMinutes} ${period}`;
         metaText += metaText ? ` at ${timeStr}` : `Time: ${timeStr}`;
     }
+    
+    // Add creator and visibility info
+    const infoParts = [];
+    if (task.creator_username) {
+        infoParts.push(`by ${task.creator_username}`);
+    }
+    if (task.visibility && task.visibility !== 'all') {
+        const visibilityLabels = {
+            'admins': 'Admins only',
+            'private': 'Private'
+        };
+        infoParts.push(visibilityLabels[task.visibility] || task.visibility);
+    }
+    
+    if (infoParts.length > 0) {
+        metaText += metaText ? ' • ' : '';
+        metaText += infoParts.join(' • ');
+    }
+    
     if (metaText) {
-    meta.textContent = metaText;
+        meta.textContent = metaText;
     }
     
     taskInfo.appendChild(title);
@@ -252,33 +371,37 @@ function createTaskElement(task, isCompleted) {
     actions.className = 'task-actions';
     
     if (isCompleted) {
-        const incompleteBtn = document.createElement('button');
-        incompleteBtn.type = 'button';
-        incompleteBtn.className = 'btn-action btn-incomplete';
-        incompleteBtn.textContent = 'Mark Incomplete';
-        incompleteBtn.onclick = () => markTaskComplete(task.id, false);
-        actions.appendChild(incompleteBtn);
+        if (isAdmin) {
+            const incompleteBtn = document.createElement('button');
+            incompleteBtn.type = 'button';
+            incompleteBtn.className = 'btn-action btn-incomplete';
+            incompleteBtn.textContent = 'Mark Incomplete';
+            incompleteBtn.onclick = () => markTaskComplete(task.id, false);
+            actions.appendChild(incompleteBtn);
+        }
     } else {
-        const completeBtn = document.createElement('button');
-        completeBtn.type = 'button';
-        completeBtn.className = 'btn-action btn-complete';
-        completeBtn.textContent = 'Complete';
-        completeBtn.onclick = () => markTaskComplete(task.id, true);
-        actions.appendChild(completeBtn);
-        
-        const editBtn = document.createElement('button');
-        editBtn.type = 'button';
-        editBtn.className = 'btn-action btn-edit';
-        editBtn.textContent = 'Edit';
-        editBtn.onclick = () => editTask(task);
-        actions.appendChild(editBtn);
-        
-        const deleteBtn = document.createElement('button');
-        deleteBtn.type = 'button';
-        deleteBtn.className = 'btn-action btn-delete';
-        deleteBtn.textContent = 'Delete';
-        deleteBtn.onclick = () => deleteTask(task.id);
-        actions.appendChild(deleteBtn);
+        if (isAdmin) {
+            const completeBtn = document.createElement('button');
+            completeBtn.type = 'button';
+            completeBtn.className = 'btn-action btn-complete';
+            completeBtn.textContent = 'Complete';
+            completeBtn.onclick = () => markTaskComplete(task.id, true);
+            actions.appendChild(completeBtn);
+            
+            const editBtn = document.createElement('button');
+            editBtn.type = 'button';
+            editBtn.className = 'btn-action btn-edit';
+            editBtn.textContent = 'Edit';
+            editBtn.onclick = () => editTask(task);
+            actions.appendChild(editBtn);
+            
+            const deleteBtn = document.createElement('button');
+            deleteBtn.type = 'button';
+            deleteBtn.className = 'btn-action btn-delete';
+            deleteBtn.textContent = 'Delete';
+            deleteBtn.onclick = () => deleteTask(task.id);
+            actions.appendChild(deleteBtn);
+        }
     }
     
     taskDiv.appendChild(taskInfo);
@@ -303,6 +426,17 @@ function openAddPopup() {
     taskInput.style.height = 'auto';
     document.getElementById('date-input').value = '';
     document.getElementById('time-input').value = '';
+    
+    // Show/hide visibility dropdown for admins
+    const visibilityGroup = document.getElementById('visibility-group');
+    const visibilityInput = document.getElementById('visibility-input');
+    if (isAdmin) {
+        visibilityGroup.style.display = 'block';
+        visibilityInput.value = 'all';
+    } else {
+        visibilityGroup.style.display = 'none';
+    }
+    
     document.getElementById('task-popup').classList.add('show');
 }
 
@@ -321,6 +455,17 @@ function editTask(task) {
     autoResizeTextarea(taskInput);
     document.getElementById('date-input').value = task.date || '';
     document.getElementById('time-input').value = task.time || '';
+    
+    // Show/hide visibility dropdown for admins
+    const visibilityGroup = document.getElementById('visibility-group');
+    const visibilityInput = document.getElementById('visibility-input');
+    if (isAdmin) {
+        visibilityGroup.style.display = 'block';
+        visibilityInput.value = task.visibility || 'all';
+    } else {
+        visibilityGroup.style.display = 'none';
+    }
+    
     document.getElementById('task-popup').classList.add('show');
 }
 
@@ -330,19 +475,20 @@ async function saveTask(event) {
     const task = document.getElementById('task-input').value;
     const date = document.getElementById('date-input').value || null;
     const time = document.getElementById('time-input').value || null;
+    const visibility = isAdmin ? (document.getElementById('visibility-input').value || 'all') : 'all';
     
     try {
         if (editingTaskId) {
             await fetch(`/api/tasks/${editingTaskId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ task, date, time })
+                body: JSON.stringify({ task, date, time, visibility })
             });
         } else {
             await fetch('/api/tasks', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ task, date, time })
+                body: JSON.stringify({ task, date, time, visibility })
             });
         }
         
@@ -454,6 +600,7 @@ function closeDayPopup() {
 window.onclick = function(event) {
     const addPopup = document.getElementById('task-popup');
     const dayPopup = document.getElementById('day-popup');
+    const requestsPopup = document.getElementById('requests-popup');
     
     if (event.target === addPopup) {
         closePopup();
@@ -461,5 +608,229 @@ window.onclick = function(event) {
     if (event.target === dayPopup) {
         closeDayPopup();
     }
+    if (event.target === requestsPopup) {
+        closeRequestsPopup();
+    }
 }
+
+// Admin functions
+function toggleAdminDashboard() {
+    const dashboard = document.getElementById('admin-dashboard');
+    const menu = document.getElementById('user-menu');
+    
+    // Close the user menu
+    if (menu) {
+        menu.style.display = 'none';
+    }
+    
+    if (dashboard.style.display === 'none') {
+        dashboard.style.display = 'block';
+        loadAccountRequests();
+        loadUsers();
+    } else {
+        dashboard.style.display = 'none';
+    }
+}
+
+async function loadAccountRequests() {
+    if (!isAdmin) return;
+    
+    try {
+        const response = await fetch('/api/account-requests');
+        if (!response.ok) return;
+        
+        const requests = await response.json();
+        const container = document.getElementById('account-requests-list');
+        const popupContainer = document.getElementById('requests-popup-content');
+        
+        if (requests.length === 0) {
+            container.innerHTML = '<div class="empty-dashboard">No pending account requests</div>';
+            if (popupContainer) {
+                popupContainer.innerHTML = '<div class="empty-message">No pending account requests</div>';
+            }
+            return;
+        }
+        
+        let html = '';
+        requests.forEach(req => {
+            const date = new Date(req.requested_at);
+            const dateStr = date.toLocaleDateString('en-US', { 
+                month: 'short', 
+                day: 'numeric', 
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+            
+            html += `
+                <div class="request-item">
+                    <div class="request-info">
+                        <div class="request-username">${req.username}</div>
+                        <div class="request-date">Requested: ${dateStr}</div>
+                    </div>
+                    <div class="request-actions">
+                        <button class="btn-approve-admin" onclick="handleAccountRequest(${req.id}, 'approve_admin')">Approve as Admin</button>
+                        <button class="btn-approve-user" onclick="handleAccountRequest(${req.id}, 'approve_user')">Approve as User</button>
+                        <button class="btn-reject" onclick="handleAccountRequest(${req.id}, 'reject')">Reject</button>
+                    </div>
+                </div>
+            `;
+        });
+        
+        container.innerHTML = html;
+        if (popupContainer) {
+            popupContainer.innerHTML = html;
+        }
+    } catch (error) {
+        console.error('Error loading account requests:', error);
+    }
+}
+
+async function handleAccountRequest(requestId, action) {
+    if (!isAdmin) return;
+    
+    try {
+        const response = await fetch(`/api/account-requests/${requestId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action })
+        });
+        
+        if (!response.ok) {
+            const data = await response.json();
+            alert(data.error || 'Error processing request');
+            return;
+        }
+        
+        // Reload requests and update notification
+        await loadAccountRequests();
+        await checkAccountRequests();
+        
+        // Close popup if open
+        closeRequestsPopup();
+    } catch (error) {
+        console.error('Error handling account request:', error);
+        alert('Error processing request. Please try again.');
+    }
+}
+
+function showAccountRequests() {
+    const popup = document.getElementById('requests-popup');
+    if (popup) {
+        loadAccountRequests();
+        popup.classList.add('show');
+    }
+}
+
+function closeRequestsPopup() {
+    const popup = document.getElementById('requests-popup');
+    if (popup) {
+        popup.classList.remove('show');
+    }
+}
+
+async function loadUsers() {
+    if (!isAdmin) return;
+    
+    try {
+        const response = await fetch('/api/users');
+        if (!response.ok) return;
+        
+        const users = await response.json();
+        const container = document.getElementById('users-list');
+        
+        if (users.length === 0) {
+            container.innerHTML = '<div class="empty-dashboard">No users found</div>';
+            return;
+        }
+        
+        let html = '';
+        users.forEach(user => {
+            const date = new Date(user.created_at);
+            const dateStr = date.toLocaleDateString('en-US', { 
+                month: 'short', 
+                day: 'numeric', 
+                year: 'numeric'
+            });
+            
+            const roleText = user.is_admin ? 'Admin' : 'Regular User';
+            const newRole = user.is_admin ? 0 : 1;
+            const roleBtnText = user.is_admin ? 'Make Regular User' : 'Make Admin';
+            
+            html += `
+                <div class="user-item">
+                    <div class="user-info-item">
+                        <div class="user-username">${user.username} ${user.id === currentUser.id ? '(You)' : ''}</div>
+                        <div class="user-date">Role: ${roleText} | Created: ${dateStr}</div>
+                    </div>
+                    <div class="user-actions">
+                        ${user.id !== currentUser.id ? `
+                            <button class="btn-change-role" onclick="changeUserRole(${user.id}, ${newRole})">${roleBtnText}</button>
+                            <button class="btn-delete-user" onclick="deleteUser(${user.id}, '${user.username}')">Delete</button>
+                        ` : '<span style="color: #6c757d; font-size: 12px;">Cannot modify own account</span>'}
+                    </div>
+                </div>
+            `;
+        });
+        
+        container.innerHTML = html;
+    } catch (error) {
+        console.error('Error loading users:', error);
+    }
+}
+
+async function changeUserRole(userId, newRole) {
+    if (!isAdmin) return;
+    
+    if (!confirm(`Are you sure you want to change this user's role?`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/users/${userId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'change_role', is_admin: newRole })
+        });
+        
+        if (!response.ok) {
+            const data = await response.json();
+            alert(data.error || 'Error updating user role');
+            return;
+        }
+        
+        await loadUsers();
+    } catch (error) {
+        console.error('Error changing user role:', error);
+        alert('Error updating user role. Please try again.');
+    }
+}
+
+async function deleteUser(userId, username) {
+    if (!isAdmin) return;
+    
+    if (!confirm(`Are you sure you want to delete user "${username}"? This will also delete all their tasks.`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/users/${userId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'delete' })
+        });
+        
+        if (!response.ok) {
+            const data = await response.json();
+            alert(data.error || 'Error deleting user');
+            return;
+        }
+        
+        await loadUsers();
+    } catch (error) {
+        console.error('Error deleting user:', error);
+        alert('Error deleting user. Please try again.');
+    }
+}
+
 

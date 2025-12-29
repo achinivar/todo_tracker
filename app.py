@@ -1,9 +1,20 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 from datetime import datetime, timedelta
+from werkzeug.security import generate_password_hash, check_password_hash
 import sqlite3
 import os
+from functools import wraps
 
 app = Flask(__name__)
+# Use a fixed secret key for sessions (in production, use environment variable)
+SECRET_KEY_FILE = '.secret_key'
+if os.path.exists(SECRET_KEY_FILE):
+    with open(SECRET_KEY_FILE, 'rb') as f:
+        app.secret_key = f.read()
+else:
+    app.secret_key = os.urandom(24)
+    with open(SECRET_KEY_FILE, 'wb') as f:
+        f.write(app.secret_key)
 DATABASE = 'tasks.db'
 
 def get_db():
@@ -15,6 +26,8 @@ def get_db():
 def init_db():
     """Initialize database with tables"""
     conn = get_db()
+    
+    # Tasks table
     conn.execute('''
         CREATE TABLE IF NOT EXISTS tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -23,9 +36,57 @@ def init_db():
             time TEXT,
             completed INTEGER DEFAULT 0,
             completed_at TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            user_id INTEGER,
+            created_by INTEGER,
+            visibility TEXT DEFAULT 'all',
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            FOREIGN KEY (created_by) REFERENCES users(id)
+        )
+    ''')
+    
+    # Migrate existing tasks: add created_by and visibility if they don't exist
+    try:
+        # Check if created_by column exists
+        cursor = conn.execute("PRAGMA table_info(tasks)")
+        columns = [row[1] for row in cursor.fetchall()]
+        
+        if 'created_by' not in columns:
+            conn.execute('ALTER TABLE tasks ADD COLUMN created_by INTEGER')
+            # Set created_by to user_id for existing tasks
+            conn.execute('UPDATE tasks SET created_by = user_id WHERE created_by IS NULL')
+        
+        if 'visibility' not in columns:
+            conn.execute('ALTER TABLE tasks ADD COLUMN visibility TEXT DEFAULT "all"')
+            # Set visibility to 'all' for existing tasks
+            conn.execute('UPDATE tasks SET visibility = "all" WHERE visibility IS NULL')
+        
+        conn.commit()
+    except sqlite3.OperationalError:
+        # Columns already exist, ignore
+        pass
+    
+    # Users table
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            is_admin INTEGER DEFAULT 0,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    
+    # Account requests table
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS account_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            requested_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
     conn.commit()
     conn.close()
 
@@ -40,44 +101,429 @@ def cleanup_old_completed_tasks():
     conn.commit()
     conn.close()
 
+def login_required(f):
+    """Decorator to require login"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            return jsonify({'error': 'Authentication required'}), 401
+        return f(*args, **kwargs)
+    return decorated_function
+
+def admin_required(f):
+    """Decorator to require admin privileges"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            return jsonify({'error': 'Authentication required'}), 401
+        conn = get_db()
+        user = conn.execute('SELECT is_admin FROM users WHERE id = ?', (session['user_id'],)).fetchone()
+        conn.close()
+        if not user or not user['is_admin']:
+            return jsonify({'error': 'Admin privileges required'}), 403
+        return f(*args, **kwargs)
+    return decorated_function
+
+def can_edit_tasks():
+    """Check if current user can edit/delete tasks"""
+    if 'user_id' not in session:
+        return False
+    conn = get_db()
+    user = conn.execute('SELECT is_admin FROM users WHERE id = ?', (session['user_id'],)).fetchone()
+    conn.close()
+    return user and user['is_admin'] == 1
+
 @app.route('/')
 def index():
-    """Main page"""
+    """Main page - redirect to login if not authenticated"""
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
     cleanup_old_completed_tasks()
     return render_template('index.html')
 
+@app.route('/login')
+def login():
+    """Login page"""
+    if 'user_id' in session:
+        return redirect(url_for('index'))
+    return render_template('login.html')
+
+@app.route('/register')
+def register():
+    """Register page"""
+    if 'user_id' in session:
+        return redirect(url_for('index'))
+    return render_template('register.html')
+
+@app.route('/api/auth/login', methods=['POST'])
+def api_login():
+    """Login API endpoint"""
+    data = request.json
+    username = data.get('username')
+    password = data.get('password')
+    
+    if not username or not password:
+        return jsonify({'error': 'Username and password required'}), 400
+    
+    conn = get_db()
+    user = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
+    conn.close()
+    
+    if not user or not check_password_hash(user['password_hash'], password):
+        return jsonify({'error': 'Invalid username or password'}), 401
+    
+    session['user_id'] = user['id']
+    session['username'] = user['username']
+    session['is_admin'] = bool(user['is_admin'])
+    
+    return jsonify({
+        'message': 'Login successful',
+        'user': {
+            'id': user['id'],
+            'username': user['username'],
+            'is_admin': bool(user['is_admin'])
+        }
+    })
+
+@app.route('/api/auth/register', methods=['POST'])
+def api_register():
+    """Register API endpoint"""
+    # Ensure database is initialized
+    init_db()
+    
+    data = request.json
+    username = data.get('username')
+    password = data.get('password')
+    
+    if not username or not password:
+        return jsonify({'error': 'Username and password required'}), 400
+    
+    if len(username) < 3:
+        return jsonify({'error': 'Username must be at least 3 characters'}), 400
+    
+    if len(password) < 6:
+        return jsonify({'error': 'Password must be at least 6 characters'}), 400
+    
+    conn = get_db()
+    
+    # Check if username already exists in users
+    existing_user = conn.execute('SELECT id FROM users WHERE username = ?', (username,)).fetchone()
+    if existing_user:
+        conn.close()
+        return jsonify({'error': 'Username already exists'}), 400
+    
+    # Check if username already exists in account_requests
+    existing_request = conn.execute('SELECT id FROM account_requests WHERE username = ?', (username,)).fetchone()
+    if existing_request:
+        conn.close()
+        return jsonify({'error': 'Account request already pending'}), 400
+    
+    # Check if there are any users
+    try:
+        user_count = conn.execute('SELECT COUNT(*) as count FROM users').fetchone()['count']
+    except Exception as e:
+        conn.close()
+        app.logger.error(f'Error checking user count: {e}')
+        return jsonify({'error': 'Database error occurred'}), 500
+    
+    password_hash = generate_password_hash(password)
+    
+    if user_count == 0:
+        # First user is automatically an admin
+        try:
+            conn.execute('''
+                INSERT INTO users (username, password_hash, is_admin)
+                VALUES (?, ?, 1)
+            ''', (username, password_hash))
+            conn.commit()
+            user_id = conn.lastrowid
+            conn.close()
+        except Exception as e:
+            # Even if there's an exception, check if user was actually created
+            # (sometimes exceptions occur but the insert still succeeds)
+            try:
+                user = conn.execute('SELECT id FROM users WHERE username = ?', (username,)).fetchone()
+                conn.close()
+                if user:
+                    # User was created successfully, use that ID
+                    user_id = user['id']
+                else:
+                    # User was not created, return error
+                    app.logger.error(f'Error creating first admin user: {e}')
+                    return jsonify({'error': f'Failed to create admin account: {str(e)}'}), 500
+            except Exception as e2:
+                conn.close()
+                app.logger.error(f'Error creating first admin user: {e}, {e2}')
+                return jsonify({'error': 'Failed to create admin account'}), 500
+        
+        # Verify we have a user_id, if not fetch it
+        if not user_id:
+            conn = get_db()
+            user = conn.execute('SELECT id FROM users WHERE username = ?', (username,)).fetchone()
+            conn.close()
+            if user:
+                user_id = user['id']
+            else:
+                return jsonify({'error': 'Account creation failed. Please try again.'}), 500
+        
+        # Auto-login the first admin user
+        try:
+            session['user_id'] = user_id
+            session['username'] = username
+            session['is_admin'] = True
+            # Explicitly mark session as modified
+            session.modified = True
+        except Exception as e:
+            app.logger.error(f'Error setting session: {e}')
+            # Account was created, so return success but warn about login
+            return jsonify({
+                'message': 'Admin account created successfully',
+                'warning': 'Account created but session setup failed. Please log in manually.',
+                'user': {
+                    'id': user_id,
+                    'username': username,
+                    'is_admin': True
+                }
+            }), 201
+        
+        return jsonify({
+            'message': 'Admin account created successfully',
+            'user': {
+                'id': user_id,
+                'username': username,
+                'is_admin': True
+            }
+        }), 201
+    else:
+        # Add to account_requests for admin approval
+        conn.execute('''
+            INSERT INTO account_requests (username, password_hash)
+            VALUES (?, ?)
+        ''', (username, password_hash))
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'message': 'Account request submitted. Waiting for admin approval.'
+        }), 201
+
+@app.route('/api/auth/logout', methods=['POST'])
+def api_logout():
+    """Logout API endpoint"""
+    session.clear()
+    return jsonify({'message': 'Logout successful'})
+
+@app.route('/api/auth/status', methods=['GET'])
+def api_auth_status():
+    """Get current authentication status"""
+    if 'user_id' not in session:
+        return jsonify({'authenticated': False}), 200
+    
+    conn = get_db()
+    user = conn.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
+    conn.close()
+    
+    if not user:
+        session.clear()
+        return jsonify({'authenticated': False}), 200
+    
+    return jsonify({
+        'authenticated': True,
+        'user': {
+            'id': user['id'],
+            'username': user['username'],
+            'is_admin': bool(user['is_admin'])
+        }
+    })
+
+@app.route('/api/account-requests', methods=['GET'])
+@login_required
+@admin_required
+def get_account_requests():
+    """Get pending account requests (admin only)"""
+    conn = get_db()
+    requests = conn.execute('''
+        SELECT * FROM account_requests 
+        ORDER BY requested_at DESC
+    ''').fetchall()
+    conn.close()
+    
+    return jsonify([dict(req) for req in requests])
+
+@app.route('/api/account-requests/<int:request_id>', methods=['POST'])
+@login_required
+@admin_required
+def handle_account_request(request_id):
+    """Approve or reject account request (admin only)"""
+    data = request.json
+    action = data.get('action')  # 'approve_admin', 'approve_user', or 'reject'
+    
+    if action not in ['approve_admin', 'approve_user', 'reject']:
+        return jsonify({'error': 'Invalid action'}), 400
+    
+    conn = get_db()
+    req = conn.execute('SELECT * FROM account_requests WHERE id = ?', (request_id,)).fetchone()
+    
+    if not req:
+        conn.close()
+        return jsonify({'error': 'Request not found'}), 404
+    
+    if action == 'reject':
+        conn.execute('DELETE FROM account_requests WHERE id = ?', (request_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({'message': 'Request rejected'})
+    
+    # Approve the account
+    is_admin = 1 if action == 'approve_admin' else 0
+    conn.execute('''
+        INSERT INTO users (username, password_hash, is_admin)
+        VALUES (?, ?, ?)
+    ''', (req['username'], req['password_hash'], is_admin))
+    
+    # Delete the request
+    conn.execute('DELETE FROM account_requests WHERE id = ?', (request_id,))
+    conn.commit()
+    conn.close()
+    
+    return jsonify({
+        'message': f'Account approved as {"admin" if is_admin else "regular user"}'
+    })
+
+@app.route('/api/users', methods=['GET'])
+@login_required
+@admin_required
+def get_users():
+    """Get all users (admin only)"""
+    conn = get_db()
+    users = conn.execute('''
+        SELECT id, username, is_admin, created_at 
+        FROM users 
+        ORDER BY created_at DESC
+    ''').fetchall()
+    conn.close()
+    
+    return jsonify([dict(user) for user in users])
+
+@app.route('/api/users/<int:user_id>', methods=['PUT'])
+@login_required
+@admin_required
+def update_user(user_id):
+    """Update user (admin only) - change role or delete"""
+    data = request.json
+    action = data.get('action')  # 'change_role' or 'delete'
+    
+    if action not in ['change_role', 'delete']:
+        return jsonify({'error': 'Invalid action'}), 400
+    
+    conn = get_db()
+    user = conn.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
+    
+    if not user:
+        conn.close()
+        return jsonify({'error': 'User not found'}), 404
+    
+    # Prevent admin from deleting themselves
+    if action == 'delete' and user_id == session['user_id']:
+        conn.close()
+        return jsonify({'error': 'Cannot delete your own account'}), 400
+    
+    if action == 'delete':
+        # Delete user's tasks first
+        conn.execute('DELETE FROM tasks WHERE user_id = ?', (user_id,))
+        # Delete user
+        conn.execute('DELETE FROM users WHERE id = ?', (user_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({'message': 'User deleted successfully'})
+    
+    if action == 'change_role':
+        new_role = data.get('is_admin')
+        if new_role is None:
+            conn.close()
+            return jsonify({'error': 'is_admin field required'}), 400
+        
+        # Prevent admin from removing their own admin status
+        if user_id == session['user_id'] and new_role == 0:
+            conn.close()
+            return jsonify({'error': 'Cannot remove your own admin privileges'}), 400
+        
+        conn.execute('UPDATE users SET is_admin = ? WHERE id = ?', (1 if new_role else 0, user_id))
+        conn.commit()
+        conn.close()
+        return jsonify({'message': 'User role updated successfully'})
+
 @app.route('/api/tasks', methods=['GET'])
+@login_required
 def get_tasks():
-    """Get all tasks"""
+    """Get all tasks visible to the current user"""
     conn = get_db()
     show_completed = request.args.get('completed', 'false').lower() == 'true'
+    user_id = session['user_id']
+    is_admin = session.get('is_admin', False)
+    
+    # Build visibility filter
+    if is_admin:
+        # Admins see: all tasks (visibility='all'), admin-only tasks, their own private tasks,
+        # and all tasks created by regular users (to ensure admin oversight)
+        visibility_filter = '''
+            (visibility = 'all' OR visibility = 'admins' OR 
+             (visibility = 'private' AND user_id = ?) OR
+             (created_by IN (SELECT id FROM users WHERE is_admin = 0)))
+        '''
+        params = (user_id,)
+    else:
+        # Regular users see: all tasks (all users) and their own tasks
+        visibility_filter = '''
+            (visibility = 'all' OR user_id = ?)
+        '''
+        params = (user_id,)
     
     if show_completed:
-        tasks = conn.execute('''
-            SELECT * FROM tasks 
-            WHERE completed = 1 
+        query = f'''
+            SELECT t.*, u.username as creator_username
+            FROM tasks t
+            LEFT JOIN users u ON t.created_by = u.id
+            WHERE completed = 1 AND ({visibility_filter})
             ORDER BY completed_at DESC
-        ''').fetchall()
+        '''
+        tasks = conn.execute(query, params).fetchall()
     else:
-        tasks = conn.execute('''
-            SELECT * FROM tasks 
-            WHERE completed = 0 
+        query = f'''
+            SELECT t.*, u.username as creator_username
+            FROM tasks t
+            LEFT JOIN users u ON t.created_by = u.id
+            WHERE completed = 0 AND ({visibility_filter})
             ORDER BY date ASC, time ASC, created_at ASC
-        ''').fetchall()
+        '''
+        tasks = conn.execute(query, params).fetchall()
     
     conn.close()
     return jsonify([dict(task) for task in tasks])
 
 @app.route('/api/tasks', methods=['POST'])
+@login_required
 def create_task():
     """Create a new task"""
     data = request.json
     conn = get_db()
+    user_id = session['user_id']
+    is_admin = session.get('is_admin', False)
+    created_by = user_id
+    
+    # Set visibility: admins can set it, regular users default to 'all'
+    visibility = data.get('visibility', 'all')
+    if not is_admin:
+        visibility = 'all'  # Regular users can only create 'all' tasks
+    
+    # Validate visibility for admins
+    if is_admin and visibility not in ['all', 'admins', 'private']:
+        visibility = 'all'
     
     conn.execute('''
-        INSERT INTO tasks (task, date, time)
-        VALUES (?, ?, ?)
-    ''', (data['task'], data.get('date'), data.get('time')))
+        INSERT INTO tasks (task, date, time, user_id, created_by, visibility)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ''', (data['task'], data.get('date'), data.get('time'), user_id, created_by, visibility))
     
     conn.commit()
     task_id = conn.lastrowid
@@ -86,10 +532,37 @@ def create_task():
     return jsonify({'id': task_id, 'message': 'Task created successfully'}), 201
 
 @app.route('/api/tasks/<int:task_id>', methods=['PUT'])
+@login_required
 def update_task(task_id):
-    """Update a task"""
+    """Update a task - only admins can edit"""
+    if not can_edit_tasks():
+        return jsonify({'error': 'Permission denied. Only admins can edit tasks.'}), 403
+    
     data = request.json
     conn = get_db()
+    user_id = session['user_id']
+    is_admin = session.get('is_admin', False)
+    
+    # Get task with visibility check
+    task = conn.execute('SELECT * FROM tasks WHERE id = ?', (task_id,)).fetchone()
+    if not task:
+        conn.close()
+        return jsonify({'error': 'Task not found'}), 404
+    
+    # Check if user can edit this task
+    can_edit = False
+    if is_admin:
+        # Admins can edit: all tasks, admin-only tasks, and their own private tasks
+        if task['visibility'] in ['all', 'admins'] or (task['visibility'] == 'private' and task['user_id'] == user_id):
+            can_edit = True
+    else:
+        # Regular users can only edit their own tasks with visibility 'all'
+        if task['user_id'] == user_id and task['visibility'] == 'all':
+            can_edit = True
+    
+    if not can_edit:
+        conn.close()
+        return jsonify({'error': 'Permission denied. You cannot edit this task.'}), 403
     
     if 'completed' in data:
         # Mark as complete/incomplete
@@ -102,11 +575,18 @@ def update_task(task_id):
         ''', (1 if completed else 0, completed_at, task_id))
     else:
         # Update task details
+        visibility = data.get('visibility', task['visibility'])
+        if not is_admin:
+            visibility = task['visibility']  # Regular users can't change visibility
+        
+        if is_admin and visibility not in ['all', 'admins', 'private']:
+            visibility = task['visibility']
+        
         conn.execute('''
             UPDATE tasks 
-            SET task = ?, date = ?, time = ?
+            SET task = ?, date = ?, time = ?, visibility = ?
             WHERE id = ?
-        ''', (data['task'], data.get('date'), data.get('time'), task_id))
+        ''', (data['task'], data.get('date'), data.get('time'), visibility, task_id))
     
     conn.commit()
     conn.close()
@@ -114,9 +594,21 @@ def update_task(task_id):
     return jsonify({'message': 'Task updated successfully'})
 
 @app.route('/api/tasks/<int:task_id>', methods=['DELETE'])
+@login_required
 def delete_task(task_id):
-    """Delete a task"""
+    """Delete a task - only admins can delete"""
+    if not can_edit_tasks():
+        return jsonify({'error': 'Permission denied. Only admins can delete tasks.'}), 403
+    
     conn = get_db()
+    
+    # Verify task exists
+    task = conn.execute('SELECT * FROM tasks WHERE id = ?', (task_id,)).fetchone()
+    if not task:
+        conn.close()
+        return jsonify({'error': 'Task not found'}), 404
+    
+    # Admins can delete any task
     conn.execute('DELETE FROM tasks WHERE id = ?', (task_id,))
     conn.commit()
     conn.close()
@@ -124,14 +616,37 @@ def delete_task(task_id):
     return jsonify({'message': 'Task deleted successfully'})
 
 @app.route('/api/tasks/date/<date>', methods=['GET'])
+@login_required
 def get_tasks_by_date(date):
     """Get tasks for a specific date"""
     conn = get_db()
-    tasks = conn.execute('''
-        SELECT * FROM tasks 
-        WHERE date = ? AND completed = 0
+    user_id = session['user_id']
+    is_admin = session.get('is_admin', False)
+    
+    # Build visibility filter
+    if is_admin:
+        # Admins see: all tasks (visibility='all'), admin-only tasks, their own private tasks,
+        # and all tasks created by regular users (to ensure admin oversight)
+        visibility_filter = '''
+            (visibility = 'all' OR visibility = 'admins' OR 
+             (visibility = 'private' AND user_id = ?) OR
+             (created_by IN (SELECT id FROM users WHERE is_admin = 0)))
+        '''
+        params = (date, user_id)
+    else:
+        # Regular users see: all tasks and their own tasks
+        visibility_filter = '''
+            (visibility = 'all' OR user_id = ?)
+        '''
+        params = (date, user_id)
+    
+    tasks = conn.execute(f'''
+        SELECT t.*, u.username as creator_username
+        FROM tasks t
+        LEFT JOIN users u ON t.created_by = u.id
+        WHERE date = ? AND completed = 0 AND ({visibility_filter})
         ORDER BY time ASC, created_at ASC
-    ''', (date,)).fetchall()
+    ''', params).fetchall()
     conn.close()
     
     return jsonify([dict(task) for task in tasks])
@@ -139,4 +654,3 @@ def get_tasks_by_date(date):
 if __name__ == '__main__':
     init_db()
     app.run(host='0.0.0.0', port=5001, debug=True)
-

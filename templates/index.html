@@ -9,9 +9,19 @@
 </head>
 <body>
     <div class="container">
+        <!-- Admin Notification Banner -->
+        <div id="admin-notification" class="admin-notification" style="display: none;">
+            <div class="notification-content">
+                <span id="notification-text"></span>
+                <button class="btn-notification" onclick="showAccountRequests()">View Requests</button>
+            </div>
+        </div>
+
         <!-- Header with Add Task button -->
         <header>
-            <h1>Task Tracker</h1>
+            <div>
+                <h1>Task Tracker</h1>
+            </div>
             <div class="header-buttons">
                 <button class="btn-refresh" onclick="location.reload()" title="Refresh">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -22,8 +32,54 @@
                     </svg>
                 </button>
                 <button class="btn-add" onclick="openAddPopup()">Add Task</button>
+                <!-- User Avatar with Dropdown -->
+                <div class="user-avatar-container">
+                    <div class="user-avatar" id="user-avatar" onclick="toggleUserMenu()">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                            <circle cx="12" cy="7" r="4"/>
+                        </svg>
+                    </div>
+                    <div class="user-menu" id="user-menu" style="display: none;">
+                        <div class="user-menu-username" id="user-menu-username"></div>
+                        <button class="user-menu-item" id="user-menu-admin" onclick="toggleAdminDashboard()" style="display: none;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                                <path d="M3 9h18M9 21V9"/>
+                            </svg>
+                            Admin Dashboard
+                        </button>
+                        <button class="user-menu-item" onclick="handleLogout()">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                                <polyline points="16 17 21 12 16 7"/>
+                                <line x1="21" y1="12" x2="9" y2="12"/>
+                            </svg>
+                            Logout
+                        </button>
+                    </div>
+                </div>
             </div>
         </header>
+
+        <!-- Admin Dashboard Section -->
+        <div id="admin-dashboard" class="admin-dashboard" style="display: none;">
+            <div class="dashboard-header">
+                <h2>Admin Dashboard</h2>
+            </div>
+            
+            <!-- Account Requests Section -->
+            <div class="dashboard-section">
+                <h3>Pending Account Requests</h3>
+                <div id="account-requests-list"></div>
+            </div>
+
+            <!-- Users Management Section -->
+            <div class="dashboard-section">
+                <h3>User Management</h3>
+                <div id="users-list"></div>
+            </div>
+        </div>
 
         <!-- Calendar Section -->
         <div class="calendar-section">
@@ -89,6 +145,14 @@
                     <label for="time-input">Time</label>
                     <input type="time" id="time-input">
                 </div>
+                <div class="form-group" id="visibility-group" style="display: none;">
+                    <label for="visibility-input">Visibility</label>
+                    <select id="visibility-input">
+                        <option value="all">All users</option>
+                        <option value="admins">Admins only</option>
+                        <option value="private">Private</option>
+                    </select>
+                </div>
                 <div class="form-actions">
                     <button type="button" class="btn-cancel" onclick="closePopup()">Cancel</button>
                     <button type="submit" class="btn-save">Save</button>
@@ -103,6 +167,15 @@
             <span class="close" onclick="closeDayPopup()">&times;</span>
             <h2 id="day-popup-title">Tasks for <span id="day-weekday"></span><br><span id="day-date"></span></h2>
             <div id="day-tasks-content"></div>
+        </div>
+    </div>
+
+    <!-- Account Requests Popup -->
+    <div id="requests-popup" class="popup">
+        <div class="popup-content">
+            <span class="close" onclick="closeRequestsPopup()">&times;</span>
+            <h2>Pending Account Requests</h2>
+            <div id="requests-popup-content"></div>
         </div>
     </div>
 
