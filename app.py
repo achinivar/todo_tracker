@@ -87,6 +87,19 @@ def init_db():
         )
     ''')
     
+    # Task completion requests table
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS task_completion_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id INTEGER NOT NULL,
+            requested_by INTEGER NOT NULL,
+            requested_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            status TEXT DEFAULT 'pending',
+            FOREIGN KEY (task_id) REFERENCES tasks(id),
+            FOREIGN KEY (requested_by) REFERENCES users(id)
+        )
+    ''')
+    
     conn.commit()
     conn.close()
 
@@ -97,6 +110,11 @@ def cleanup_old_completed_tasks():
     conn.execute('''
         DELETE FROM tasks 
         WHERE completed = 1 AND completed_at < ?
+    ''', (one_month_ago,))
+    # Also clean up old completion requests
+    conn.execute('''
+        DELETE FROM task_completion_requests 
+        WHERE status != 'pending' AND requested_at < ?
     ''', (one_month_ago,))
     conn.commit()
     conn.close()
@@ -421,6 +439,111 @@ def get_account_requests():
     
     return jsonify([dict(req) for req in requests])
 
+@app.route('/api/task-completion-requests', methods=['GET'])
+@login_required
+@admin_required
+def get_task_completion_requests():
+    """Get pending task completion requests (admin only)"""
+    conn = get_db()
+    requests = conn.execute('''
+        SELECT tcr.*, t.task, t.date, t.time, u.username as requester_username
+        FROM task_completion_requests tcr
+        JOIN tasks t ON tcr.task_id = t.id
+        JOIN users u ON tcr.requested_by = u.id
+        WHERE tcr.status = 'pending'
+        ORDER BY tcr.requested_at DESC
+    ''').fetchall()
+    conn.close()
+    
+    return jsonify([dict(req) for req in requests])
+
+@app.route('/api/task-completion-requests', methods=['POST'])
+@login_required
+def create_task_completion_request():
+    """Create a task completion request (regular users)"""
+    data = request.json
+    task_id = data.get('task_id')
+    
+    if not task_id:
+        return jsonify({'error': 'Task ID is required'}), 400
+    
+    conn = get_db()
+    user_id = session['user_id']
+    
+    # Check if task exists and user can see it
+    task = conn.execute('SELECT * FROM tasks WHERE id = ?', (task_id,)).fetchone()
+    if not task:
+        conn.close()
+        return jsonify({'error': 'Task not found'}), 404
+    
+    # Check if task is already completed
+    if task['completed'] == 1:
+        conn.close()
+        return jsonify({'error': 'Task is already completed'}), 400
+    
+    # Check if there's already a pending request for this task
+    existing_request = conn.execute('''
+        SELECT * FROM task_completion_requests 
+        WHERE task_id = ? AND status = 'pending'
+    ''', (task_id,)).fetchone()
+    
+    if existing_request:
+        conn.close()
+        return jsonify({'error': 'A completion request for this task is already pending'}), 400
+    
+    # Create the request
+    conn.execute('''
+        INSERT INTO task_completion_requests (task_id, requested_by, status)
+        VALUES (?, ?, 'pending')
+    ''', (task_id, user_id))
+    
+    conn.commit()
+    conn.close()
+    
+    return jsonify({'message': 'Completion request submitted. Waiting for admin approval.'}), 201
+
+@app.route('/api/task-completion-requests/<int:request_id>', methods=['POST'])
+@login_required
+@admin_required
+def handle_task_completion_request(request_id):
+    """Approve or reject task completion request (admin only)"""
+    data = request.json
+    action = data.get('action')  # 'approve' or 'reject'
+    
+    if action not in ['approve', 'reject']:
+        return jsonify({'error': 'Invalid action'}), 400
+    
+    conn = get_db()
+    req = conn.execute('SELECT * FROM task_completion_requests WHERE id = ?', (request_id,)).fetchone()
+    
+    if not req:
+        conn.close()
+        return jsonify({'error': 'Request not found'}), 404
+    
+    if req['status'] != 'pending':
+        conn.close()
+        return jsonify({'error': 'Request is not pending'}), 400
+    
+    if action == 'reject':
+        conn.execute('UPDATE task_completion_requests SET status = ? WHERE id = ?', ('rejected', request_id))
+        conn.commit()
+        conn.close()
+        return jsonify({'message': 'Request rejected'})
+    
+    # Approve: mark task as complete
+    completed_at = datetime.now().isoformat()
+    conn.execute('''
+        UPDATE tasks 
+        SET completed = 1, completed_at = ?
+        WHERE id = ?
+    ''', (completed_at, req['task_id']))
+    
+    conn.execute('UPDATE task_completion_requests SET status = ? WHERE id = ?', ('approved', request_id))
+    conn.commit()
+    conn.close()
+    
+    return jsonify({'message': 'Task marked as complete'})
+
 @app.route('/api/account-requests/<int:request_id>', methods=['POST'])
 @login_required
 @admin_required
@@ -552,7 +675,11 @@ def get_tasks():
     
     if show_completed:
         query = f'''
-            SELECT t.*, u.username as creator_username
+            SELECT t.*, u.username as creator_username,
+                   CASE WHEN EXISTS (
+                       SELECT 1 FROM task_completion_requests tcr 
+                       WHERE tcr.task_id = t.id AND tcr.status = 'pending'
+                   ) THEN 1 ELSE 0 END as has_pending_request
             FROM tasks t
             LEFT JOIN users u ON t.created_by = u.id
             WHERE completed = 1 AND ({visibility_filter})
@@ -561,7 +688,11 @@ def get_tasks():
         tasks = conn.execute(query, params).fetchall()
     else:
         query = f'''
-            SELECT t.*, u.username as creator_username
+            SELECT t.*, u.username as creator_username,
+                   CASE WHEN EXISTS (
+                       SELECT 1 FROM task_completion_requests tcr 
+                       WHERE tcr.task_id = t.id AND tcr.status = 'pending'
+                   ) THEN 1 ELSE 0 END as has_pending_request
             FROM tasks t
             LEFT JOIN users u ON t.created_by = u.id
             WHERE completed = 0 AND ({visibility_filter})
@@ -712,7 +843,11 @@ def get_tasks_by_date(date):
         params = (date, user_id)
     
     tasks = conn.execute(f'''
-        SELECT t.*, u.username as creator_username
+        SELECT t.*, u.username as creator_username,
+               CASE WHEN EXISTS (
+                   SELECT 1 FROM task_completion_requests tcr 
+                   WHERE tcr.task_id = t.id AND tcr.status = 'pending'
+               ) THEN 1 ELSE 0 END as has_pending_request
         FROM tasks t
         LEFT JOIN users u ON t.created_by = u.id
         WHERE date = ? AND completed = 0 AND ({visibility_filter})

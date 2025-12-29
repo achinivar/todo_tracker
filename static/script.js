@@ -36,6 +36,7 @@ async function checkAuth() {
         
         if (isAdmin) {
             checkAccountRequests();
+            checkTaskCompletionRequests();
             loadUsers();
         }
         
@@ -80,21 +81,53 @@ document.addEventListener('click', function(event) {
 
 async function checkAccountRequests() {
     try {
-        const response = await fetch('/api/account-requests');
+        const accountResponse = await fetch('/api/account-requests');
+        if (!accountResponse.ok) return;
+        
+        const accountRequests = await accountResponse.json();
+        const completionResponse = await fetch('/api/task-completion-requests');
+        const completionRequests = completionResponse.ok ? await completionResponse.json() : [];
+        
+        await updateAdminNotification(accountRequests.length, completionRequests.length);
+    } catch (error) {
+        console.error('Error checking account requests:', error);
+    }
+}
+
+async function checkTaskCompletionRequests() {
+    try {
+        const response = await fetch('/api/task-completion-requests');
         if (!response.ok) return;
         
         const requests = await response.json();
-        const notification = document.getElementById('admin-notification');
-        const notificationText = document.getElementById('notification-text');
+        const accountResponse = await fetch('/api/account-requests');
+        const accountRequests = accountResponse.ok ? await accountResponse.json() : [];
         
-        if (requests.length > 0) {
-            notification.style.display = 'block';
-            notificationText.textContent = `You have ${requests.length} pending account request${requests.length > 1 ? 's' : ''}`;
-        } else {
-            notification.style.display = 'none';
-        }
+        await updateAdminNotification(accountRequests.length, requests.length);
     } catch (error) {
-        console.error('Error checking account requests:', error);
+        console.error('Error checking task completion requests:', error);
+    }
+}
+
+async function updateAdminNotification(accountCount = 0, completionCount = 0) {
+    const notification = document.getElementById('admin-notification');
+    const notificationText = document.getElementById('notification-text');
+    
+    if (accountCount > 0 || completionCount > 0) {
+        notification.style.display = 'block';
+        let message = '';
+        if (accountCount > 0 && completionCount > 0) {
+            message = `You have ${accountCount} pending account request${accountCount > 1 ? 's' : ''} and ${completionCount} pending task completion request${completionCount > 1 ? 's' : ''}`;
+        } else if (accountCount > 0) {
+            message = `You have ${accountCount} pending account request${accountCount > 1 ? 's' : ''}`;
+        } else if (completionCount > 0) {
+            message = `You have ${completionCount} pending task completion request${completionCount > 1 ? 's' : ''}`;
+        }
+        if (message) {
+            notificationText.textContent = message;
+        }
+    } else {
+        notification.style.display = 'none';
     }
 }
 
@@ -508,6 +541,24 @@ function createTaskElement(task, isCompleted) {
             deleteBtn.textContent = 'Delete';
             deleteBtn.onclick = () => deleteTask(task.id);
             actions.appendChild(deleteBtn);
+        } else {
+            // Regular users can request to mark task as complete
+            const requestCompleteBtn = document.createElement('button');
+            requestCompleteBtn.type = 'button';
+            requestCompleteBtn.className = 'btn-action btn-request-complete';
+            
+            // Check if there's a pending request for this task
+            if (task.has_pending_request) {
+                requestCompleteBtn.textContent = 'Request Pending';
+                requestCompleteBtn.disabled = true;
+                requestCompleteBtn.style.opacity = '0.6';
+                requestCompleteBtn.style.cursor = 'not-allowed';
+            } else {
+                requestCompleteBtn.textContent = 'Mark Complete';
+                requestCompleteBtn.onclick = () => requestTaskComplete(task.id);
+            }
+            
+            actions.appendChild(requestCompleteBtn);
         }
     }
     
@@ -740,10 +791,72 @@ function toggleAdminDashboard() {
     
     if (dashboard.style.display === 'none') {
         dashboard.style.display = 'block';
+        loadTaskCompletionRequests();
         loadAccountRequests();
         loadUsers();
     } else {
         dashboard.style.display = 'none';
+    }
+}
+
+async function loadTaskCompletionRequests() {
+    if (!isAdmin) return;
+    
+    try {
+        const response = await fetch('/api/task-completion-requests');
+        if (!response.ok) {
+            console.error('Failed to fetch task completion requests:', response.status);
+            return;
+        }
+        
+        const requests = await response.json();
+        const container = document.getElementById('task-completion-requests-list');
+        
+        if (!container) {
+            console.error('task-completion-requests-list container not found');
+            return;
+        }
+        
+        if (requests.length === 0) {
+            container.innerHTML = '<div class="empty-dashboard">No pending task completion requests</div>';
+            return;
+        }
+        
+        let html = '';
+        requests.forEach(req => {
+            const date = new Date(req.requested_at);
+            const dateStr = date.toLocaleDateString('en-US', { 
+                month: 'short', 
+                day: 'numeric', 
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+            
+            let taskInfo = req.task || 'Unknown task';
+            if (req.date) {
+                const [year, month, day] = req.date.split('-').map(Number);
+                const taskDate = new Date(year, month - 1, day);
+                taskInfo += ` (${taskDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`;
+            }
+            
+            html += `
+                <div class="request-item">
+                    <div class="request-info">
+                        <div class="request-username">Task: ${taskInfo}</div>
+                        <div class="request-date">Requested by: ${req.requester_username || 'Unknown'} on ${dateStr}</div>
+                    </div>
+                    <div class="request-actions">
+                        <button class="btn-approve-admin" onclick="handleTaskCompletionRequest(${req.id}, 'approve')">Approve</button>
+                        <button class="btn-reject" onclick="handleTaskCompletionRequest(${req.id}, 'reject')">Reject</button>
+                    </div>
+                </div>
+            `;
+        });
+        
+        container.innerHTML = html;
+    } catch (error) {
+        console.error('Error loading task completion requests:', error);
     }
 }
 
@@ -801,6 +914,56 @@ async function loadAccountRequests() {
     }
 }
 
+async function requestTaskComplete(taskId) {
+    try {
+        const response = await fetch('/api/task-completion-requests', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ task_id: taskId })
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+            alert(data.error || 'Error submitting completion request');
+            return;
+        }
+        
+        alert('Completion request submitted. Waiting for admin approval.');
+        // Reload tasks to update button to "Request Pending"
+        await loadTasks();
+    } catch (error) {
+        console.error('Error requesting task completion:', error);
+        alert('Error submitting request. Please try again.');
+    }
+}
+
+async function handleTaskCompletionRequest(requestId, action) {
+    if (!isAdmin) return;
+    
+    try {
+        const response = await fetch(`/api/task-completion-requests/${requestId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action })
+        });
+        
+        if (!response.ok) {
+            const data = await response.json();
+            alert(data.error || 'Error processing request');
+            return;
+        }
+        
+        // Reload requests and update notification
+        await loadTaskCompletionRequests();
+        await checkAccountRequests(); // This will update notification with both counts
+        loadTasks(); // Reload tasks in case one was marked complete
+    } catch (error) {
+        console.error('Error handling task completion request:', error);
+        alert('Error processing request. Please try again.');
+    }
+}
+
 async function handleAccountRequest(requestId, action) {
     if (!isAdmin) return;
     
@@ -819,7 +982,7 @@ async function handleAccountRequest(requestId, action) {
         
         // Reload requests and update notification
         await loadAccountRequests();
-        await checkAccountRequests();
+        await checkAccountRequests(); // This will update notification with both counts
         
         // Close popup if open
         closeRequestsPopup();

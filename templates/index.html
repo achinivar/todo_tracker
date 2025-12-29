@@ -13,7 +13,7 @@
         <div id="admin-notification" class="admin-notification" style="display: none;">
             <div class="notification-content">
                 <span id="notification-text"></span>
-                <button class="btn-notification" onclick="showAccountRequests()">View Requests</button>
+                <button class="btn-notification" onclick="toggleAdminDashboard()">View Dashboard</button>
             </div>
         </div>
 
@@ -73,6 +73,12 @@
         <div id="admin-dashboard" class="admin-dashboard" style="display: none;">
             <div class="dashboard-header">
                 <h2>Admin Dashboard</h2>
+            </div>
+            
+            <!-- Task Completion Requests Section -->
+            <div class="dashboard-section">
+                <h3>Pending Task Completes</h3>
+                <div id="task-completion-requests-list"></div>
             </div>
             
             <!-- Account Requests Section -->
