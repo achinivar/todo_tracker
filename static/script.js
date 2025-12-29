@@ -794,10 +794,7 @@ async function saveTask(event) {
         assigned_to = null;
     }
     
-    const taskData = { task, date, time, visibility };
-    if (assigned_to !== null) {
-        taskData.assigned_to = assigned_to;
-    }
+    const taskData = { task, date, time, visibility, assigned_to };
     
     try {
         if (editingTaskId) {

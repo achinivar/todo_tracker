@@ -850,13 +850,14 @@ def update_task(task_id):
         ''', (1 if completed else 0, completed_at, task_id))
     else:
         # Update task details
-        assigned_to = data.get('assigned_to', task.get('assigned_to'))
+        # sqlite3.Row doesn't have .get(), use dictionary access instead
+        assigned_to = data.get('assigned_to', task['assigned_to'])
         visibility = data.get('visibility', task['visibility'])
         
         if not is_admin:
             # Regular users can't change assignment or visibility
             visibility = task['visibility']
-            assigned_to = task.get('assigned_to')
+            assigned_to = task['assigned_to']
         else:
             # Admin users can change assignment or visibility
             if assigned_to:
