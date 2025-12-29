@@ -371,6 +371,17 @@ header h1 {
     background: #138496;
 }
 
+.btn-request-complete {
+    background: #28a745;
+    color: white;
+    border: 2px solid #28a745;
+}
+
+.btn-request-complete:hover {
+    background: #218838;
+    border-color: #218838;
+}
+
 .empty-message {
     text-align: center;
     color: #6c757d;
