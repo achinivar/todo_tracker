@@ -781,14 +781,28 @@ def create_task():
                 visibility = 'all'
             assigned_to = None
     
-    conn.execute('''
+    cursor = conn.execute('''
         INSERT INTO tasks (task, date, time, user_id, created_by, visibility, assigned_to)
         VALUES (?, ?, ?, ?, ?, ?, ?)
     ''', (data['task'], data.get('date'), data.get('time'), user_id, created_by, visibility, assigned_to))
     
     conn.commit()
-    task_id = conn.lastrowid
+    task_id = cursor.lastrowid
+    
+    # Fallback: if lastrowid is not available, query for the task ID
+    if not task_id:
+        task = conn.execute('''
+            SELECT id FROM tasks 
+            WHERE task = ? AND user_id = ? AND created_by = ? 
+            ORDER BY id DESC LIMIT 1
+        ''', (data['task'], user_id, created_by)).fetchone()
+        if task:
+            task_id = task['id']
+    
     conn.close()
+    
+    if not task_id:
+        return jsonify({'error': 'Failed to create task'}), 500
     
     return jsonify({'id': task_id, 'message': 'Task created successfully'}), 201
 
