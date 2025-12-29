@@ -49,6 +49,13 @@
                             </svg>
                             Admin Dashboard
                         </button>
+                        <button class="user-menu-item" onclick="openChangePasswordPopup()">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                            </svg>
+                            Change Password
+                        </button>
                         <button class="user-menu-item" onclick="handleLogout()">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
@@ -176,6 +183,110 @@
             <span class="close" onclick="closeRequestsPopup()">&times;</span>
             <h2>Pending Account Requests</h2>
             <div id="requests-popup-content"></div>
+        </div>
+    </div>
+
+    <!-- Change Password Popup -->
+    <div id="change-password-popup" class="popup">
+        <div class="popup-content">
+            <span class="close" onclick="closeChangePasswordPopup()">&times;</span>
+            <h2>Change Password</h2>
+            <div class="error-message" id="change-password-error" style="display: none;"></div>
+            <div class="success-message" id="change-password-success" style="display: none;"></div>
+            <form id="change-password-form" onsubmit="handleChangePassword(event)">
+                <div class="form-group">
+                    <label for="current-password">Current Password</label>
+                    <div class="password-input-container">
+                        <input type="password" id="current-password" required>
+                        <button type="button" class="password-toggle" onclick="togglePassword('current-password')" title="Show/Hide password">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                <circle cx="12" cy="12" r="3"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="new-password">New Password</label>
+                    <div class="password-input-container">
+                        <input type="password" id="new-password" required minlength="6">
+                        <button type="button" class="password-toggle" onclick="togglePassword('new-password')" title="Show/Hide password">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                <circle cx="12" cy="12" r="3"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="confirm-new-password">Confirm New Password</label>
+                    <div class="password-input-container">
+                        <input type="password" id="confirm-new-password" required minlength="6">
+                        <button type="button" class="password-toggle" onclick="togglePassword('confirm-new-password')" title="Show/Hide password">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                <circle cx="12" cy="12" r="3"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn-cancel" onclick="closeChangePasswordPopup()">Cancel</button>
+                    <button type="submit" class="btn-save">Change Password</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Admin Change User Password Popup -->
+    <div id="admin-change-password-popup" class="popup">
+        <div class="popup-content">
+            <span class="close" onclick="closeAdminChangePasswordPopup()">&times;</span>
+            <h2>Change Password for <span id="admin-change-password-username"></span></h2>
+            <div class="error-message" id="admin-change-password-error" style="display: none;"></div>
+            <div class="success-message" id="admin-change-password-success" style="display: none;"></div>
+            <form id="admin-change-password-form" onsubmit="handleAdminChangePassword(event)">
+                <div class="form-group">
+                    <label for="admin-password">Your Admin Password</label>
+                    <div class="password-input-container">
+                        <input type="password" id="admin-password" required>
+                        <button type="button" class="password-toggle" onclick="togglePassword('admin-password')" title="Show/Hide password">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                <circle cx="12" cy="12" r="3"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="admin-new-password">New Password for User</label>
+                    <div class="password-input-container">
+                        <input type="password" id="admin-new-password" required minlength="6">
+                        <button type="button" class="password-toggle" onclick="togglePassword('admin-new-password')" title="Show/Hide password">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                <circle cx="12" cy="12" r="3"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="admin-confirm-new-password">Confirm New Password</label>
+                    <div class="password-input-container">
+                        <input type="password" id="admin-confirm-new-password" required minlength="6">
+                        <button type="button" class="password-toggle" onclick="togglePassword('admin-confirm-new-password')" title="Show/Hide password">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                <circle cx="12" cy="12" r="3"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn-cancel" onclick="closeAdminChangePasswordPopup()">Cancel</button>
+                    <button type="submit" class="btn-save">Change Password</button>
+                </div>
+            </form>
         </div>
     </div>
 
