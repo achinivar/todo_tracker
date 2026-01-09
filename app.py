@@ -15,6 +15,8 @@ else:
     app.secret_key = os.urandom(24)
     with open(SECRET_KEY_FILE, 'wb') as f:
         f.write(app.secret_key)
+# Configure permanent session lifetime to 7 days
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
 DATABASE = 'tasks.db'
 
 def get_db():
@@ -197,6 +199,7 @@ def api_login():
     session['user_id'] = user['id']
     session['username'] = user['username']
     session['is_admin'] = bool(user['is_admin'])
+    session.permanent = True
     
     return jsonify({
         'message': 'Login successful',
@@ -293,6 +296,7 @@ def api_register():
             session['user_id'] = user_id
             session['username'] = username
             session['is_admin'] = True
+            session.permanent = True
             # Explicitly mark session as modified
             session.modified = True
         except Exception as e:
