@@ -106,6 +106,21 @@ def init_db():
         )
     ''')
     
+    # Checklist items table (subtasks/attached lists)
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS checklist_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id INTEGER NOT NULL,
+            item_text TEXT NOT NULL,
+            completed INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+        )
+    ''')
+    
+    # Create index for faster lookups
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_checklist_task_id ON checklist_items(task_id)')
+    
     conn.commit()
     conn.close()
 
@@ -972,6 +987,183 @@ def get_tasks_by_date(date):
     conn.close()
     
     return jsonify([dict(task) for task in tasks])
+
+@app.route('/api/tasks/<int:task_id>/checklist', methods=['GET'])
+@login_required
+def get_checklist_items(task_id):
+    """Get all checklist items for a task"""
+    conn = get_db()
+    
+    # Verify task exists and user can access it
+    task = conn.execute('SELECT * FROM tasks WHERE id = ?', (task_id,)).fetchone()
+    if not task:
+        conn.close()
+        return jsonify({'error': 'Task not found'}), 404
+    
+    # Check visibility (simplified - using same logic as get_tasks)
+    user_id = session['user_id']
+    is_admin = session.get('is_admin', False)
+    
+    can_access = False
+    if is_admin:
+        can_access = True
+    else:
+        # Regular users can see if task is assigned to them or created by them
+        if task['assigned_to'] == user_id or task['created_by'] == user_id:
+            can_access = True
+        elif task['visibility'] == 'all' and task['assigned_to'] is None:
+            can_access = True
+    
+    if not can_access:
+        conn.close()
+        return jsonify({'error': 'Permission denied'}), 403
+    
+    items = conn.execute('''
+        SELECT * FROM checklist_items 
+        WHERE task_id = ? 
+        ORDER BY created_at ASC
+    ''', (task_id,)).fetchall()
+    
+    conn.close()
+    return jsonify([dict(item) for item in items])
+
+@app.route('/api/tasks/<int:task_id>/checklist', methods=['POST'])
+@login_required
+def create_checklist_item(task_id):
+    """Create a new checklist item"""
+    data = request.json
+    item_text = data.get('item_text', '').strip()
+    
+    if not item_text:
+        return jsonify({'error': 'Item text is required'}), 400
+    
+    conn = get_db()
+    
+    # Verify task exists and user can access it
+    task = conn.execute('SELECT * FROM tasks WHERE id = ?', (task_id,)).fetchone()
+    if not task:
+        conn.close()
+        return jsonify({'error': 'Task not found'}), 404
+    
+    # Check permissions (same as get_checklist_items)
+    user_id = session['user_id']
+    is_admin = session.get('is_admin', False)
+    
+    can_access = False
+    if is_admin:
+        can_access = True
+    else:
+        if task['assigned_to'] == user_id or task['created_by'] == user_id:
+            can_access = True
+        elif task['visibility'] == 'all' and task['assigned_to'] is None:
+            can_access = True
+    
+    if not can_access:
+        conn.close()
+        return jsonify({'error': 'Permission denied'}), 403
+    
+    cursor = conn.execute('''
+        INSERT INTO checklist_items (task_id, item_text)
+        VALUES (?, ?)
+    ''', (task_id, item_text))
+    
+    conn.commit()
+    item_id = cursor.lastrowid
+    conn.close()
+    
+    return jsonify({'id': item_id, 'message': 'Checklist item created successfully'}), 201
+
+@app.route('/api/checklist-items/<int:item_id>', methods=['PUT'])
+@login_required
+def update_checklist_item(item_id):
+    """Update a checklist item (text or completed status)"""
+    data = request.json
+    conn = get_db()
+    
+    # Get the item and its task
+    item = conn.execute('SELECT * FROM checklist_items WHERE id = ?', (item_id,)).fetchone()
+    if not item:
+        conn.close()
+        return jsonify({'error': 'Checklist item not found'}), 404
+    
+    task = conn.execute('SELECT * FROM tasks WHERE id = ?', (item['task_id'],)).fetchone()
+    if not task:
+        conn.close()
+        return jsonify({'error': 'Task not found'}), 404
+    
+    # Check permissions
+    user_id = session['user_id']
+    is_admin = session.get('is_admin', False)
+    
+    can_access = False
+    if is_admin:
+        can_access = True
+    else:
+        if task['assigned_to'] == user_id or task['created_by'] == user_id:
+            can_access = True
+        elif task['visibility'] == 'all' and task['assigned_to'] is None:
+            can_access = True
+    
+    if not can_access:
+        conn.close()
+        return jsonify({'error': 'Permission denied'}), 403
+    
+    # Update item
+    if 'item_text' in data:
+        item_text = data['item_text'].strip()
+        if not item_text:
+            conn.close()
+            return jsonify({'error': 'Item text cannot be empty'}), 400
+        conn.execute('UPDATE checklist_items SET item_text = ? WHERE id = ?', (item_text, item_id))
+    
+    if 'completed' in data:
+        completed = 1 if data['completed'] else 0
+        conn.execute('UPDATE checklist_items SET completed = ? WHERE id = ?', (completed, item_id))
+    
+    conn.commit()
+    conn.close()
+    
+    return jsonify({'message': 'Checklist item updated successfully'})
+
+@app.route('/api/checklist-items/<int:item_id>', methods=['DELETE'])
+@login_required
+def delete_checklist_item(item_id):
+    """Delete a checklist item"""
+    conn = get_db()
+    
+    # Get the item and its task
+    item = conn.execute('SELECT * FROM checklist_items WHERE id = ?', (item_id,)).fetchone()
+    if not item:
+        conn.close()
+        return jsonify({'error': 'Checklist item not found'}), 404
+    
+    task = conn.execute('SELECT * FROM tasks WHERE id = ?', (item['task_id'],)).fetchone()
+    if not task:
+        conn.close()
+        return jsonify({'error': 'Task not found'}), 404
+    
+    # Check permissions
+    user_id = session['user_id']
+    is_admin = session.get('is_admin', False)
+    
+    can_access = False
+    if is_admin:
+        can_access = True
+    else:
+        if task['assigned_to'] == user_id or task['created_by'] == user_id:
+            can_access = True
+        elif task['visibility'] == 'all' and task['assigned_to'] is None:
+            can_access = True
+    
+    if not can_access:
+        conn.close()
+        return jsonify({'error': 'Permission denied'}), 403
+    
+    conn.execute('DELETE FROM checklist_items WHERE id = ?', (item_id,))
+    conn.commit()
+    conn.close()
+    
+    return jsonify({'message': 'Checklist item deleted successfully'})
 
 if __name__ == '__main__':
     init_db()

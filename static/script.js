@@ -7,6 +7,7 @@ let currentUser = null;
 let isAdmin = false;
 let currentTaskFilter = 'all';
 let allTasks = []; // Store all tasks for filtering
+let currentChecklistTaskId = null; // Track which task's checklist is being edited
 
 const monthNames = [
     "January", "February", "March", "April", "May", "June",
@@ -589,6 +590,9 @@ function createTaskElement(task, isCompleted) {
     taskInfo.appendChild(title);
     taskInfo.appendChild(meta);
     
+    // Load and display checklist if it exists
+    loadTaskChecklist(task.id, taskInfo);
+    
     const actions = document.createElement('div');
     actions.className = 'task-actions';
     
@@ -660,6 +664,7 @@ function toggleSection(section) {
 
 async function openAddPopup() {
     editingTaskId = null;
+    currentChecklistTaskId = null;
     document.getElementById('popup-title').textContent = 'Add Task';
     const taskInput = document.getElementById('task-input');
     taskInput.value = '';
@@ -707,12 +712,14 @@ async function openAddPopup() {
 function closePopup() {
     document.getElementById('task-popup').classList.remove('show');
     editingTaskId = null;
+    currentChecklistTaskId = null;
     const taskInput = document.getElementById('task-input');
     taskInput.style.height = 'auto';
 }
 
 async function editTask(task) {
     editingTaskId = task.id;
+    currentChecklistTaskId = task.id;
     document.getElementById('popup-title').textContent = 'Edit Task';
     const taskInput = document.getElementById('task-input');
     taskInput.value = task.task;
@@ -797,18 +804,27 @@ async function saveTask(event) {
     const taskData = { task, date, time, visibility, assigned_to };
     
     try {
+        let taskId;
         if (editingTaskId) {
-            await fetch(`/api/tasks/${editingTaskId}`, {
+            const response = await fetch(`/api/tasks/${editingTaskId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(taskData)
             });
+            taskId = editingTaskId;
         } else {
-            await fetch('/api/tasks', {
+            const response = await fetch('/api/tasks', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(taskData)
             });
+            const data = await response.json();
+            taskId = data.id;
+        }
+        
+        // Update currentChecklistTaskId if we have checklist items to save
+        if (taskId) {
+            currentChecklistTaskId = taskId;
         }
         
         closePopup();
@@ -922,6 +938,7 @@ window.onclick = function(event) {
     const requestsPopup = document.getElementById('requests-popup');
     const changePasswordPopup = document.getElementById('change-password-popup');
     const adminChangePasswordPopup = document.getElementById('admin-change-password-popup');
+    const checklistPopup = document.getElementById('checklist-popup');
     
     if (event.target === addPopup) {
         closePopup();
@@ -937,6 +954,9 @@ window.onclick = function(event) {
     }
     if (event.target === adminChangePasswordPopup) {
         closeAdminChangePasswordPopup();
+    }
+    if (event.target === checklistPopup) {
+        closeChecklistPopup();
     }
 }
 
@@ -1361,6 +1381,258 @@ async function handleAdminChangePassword(event) {
         console.error('Error changing password:', error);
         errorDiv.textContent = 'An error occurred. Please try again.';
         errorDiv.style.display = 'block';
+    }
+}
+
+// Checklist management functions
+async function openChecklistPopup() {
+    // Determine which task we're working with
+    let taskId = currentChecklistTaskId || editingTaskId;
+    
+    // If we're creating a new task, we need to save it first
+    if (!taskId) {
+        const taskInput = document.getElementById('task-input');
+        const taskText = taskInput.value.trim();
+        
+        if (!taskText) {
+            alert('Please enter a task name first before attaching a list.');
+            return;
+        }
+        
+        // Save the task first
+        const date = document.getElementById('date-input').value || null;
+        const time = document.getElementById('time-input').value || null;
+        
+        let assigned_to = null;
+        let visibility = 'all';
+        
+        if (isAdmin) {
+            const assignInput = document.getElementById('assign-input');
+            const assignValue = assignInput.value;
+            
+            if (assignValue && !isNaN(assignValue) && assignValue !== '') {
+                assigned_to = parseInt(assignValue);
+                visibility = 'all';
+            } else {
+                visibility = assignValue || 'all';
+                assigned_to = null;
+            }
+        } else {
+            visibility = 'all';
+            assigned_to = null;
+        }
+        
+        try {
+            const response = await fetch('/api/tasks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ task: taskText, date, time, visibility, assigned_to })
+            });
+            
+            if (!response.ok) {
+                const data = await response.json();
+                alert(data.error || 'Error creating task');
+                return;
+            }
+            
+            const data = await response.json();
+            taskId = data.id;
+            editingTaskId = taskId;
+            currentChecklistTaskId = taskId;
+            
+            // Update the popup title to indicate we're editing
+            document.getElementById('popup-title').textContent = 'Edit Task';
+        } catch (error) {
+            console.error('Error creating task:', error);
+            alert('Error creating task. Please try again.');
+            return;
+        }
+    }
+    
+    currentChecklistTaskId = taskId;
+    document.getElementById('checklist-popup-title').textContent = 'Attach List';
+    await loadChecklistItems(taskId);
+    document.getElementById('checklist-popup').classList.add('show');
+}
+
+function closeChecklistPopup() {
+    document.getElementById('checklist-popup').classList.remove('show');
+    document.getElementById('checklist-item-input').value = '';
+    currentChecklistTaskId = null;
+}
+
+async function loadChecklistItems(taskId) {
+    try {
+        const response = await fetch(`/api/tasks/${taskId}/checklist`);
+        if (!response.ok) {
+            console.error('Failed to load checklist items');
+            return;
+        }
+        
+        const items = await response.json();
+        const container = document.getElementById('checklist-items-container');
+        container.innerHTML = '';
+        
+        if (items.length === 0) {
+            container.innerHTML = '<div class="empty-message">No items yet. Add items below.</div>';
+            return;
+        }
+        
+        items.forEach(item => {
+            const itemDiv = document.createElement('div');
+            itemDiv.className = 'checklist-item';
+            itemDiv.dataset.itemId = item.id;
+            
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = item.completed === 1;
+            checkbox.onchange = () => toggleChecklistItem(item.id, checkbox.checked);
+            
+            const label = document.createElement('label');
+            label.textContent = item.item_text;
+            label.style.textDecoration = item.completed === 1 ? 'line-through' : 'none';
+            label.style.opacity = item.completed === 1 ? '0.6' : '1';
+            label.onclick = () => checkbox.click();
+            
+            const deleteBtn = document.createElement('button');
+            deleteBtn.type = 'button';
+            deleteBtn.className = 'btn-delete-item';
+            deleteBtn.innerHTML = '×';
+            deleteBtn.onclick = () => deleteChecklistItem(item.id);
+            
+            itemDiv.appendChild(checkbox);
+            itemDiv.appendChild(label);
+            itemDiv.appendChild(deleteBtn);
+            container.appendChild(itemDiv);
+        });
+    } catch (error) {
+        console.error('Error loading checklist items:', error);
+    }
+}
+
+async function addChecklistItem() {
+    const input = document.getElementById('checklist-item-input');
+    const itemText = input.value.trim();
+    
+    if (!itemText) {
+        return;
+    }
+    
+    if (!currentChecklistTaskId) {
+        alert('No task selected. Please save the task first.');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/tasks/${currentChecklistTaskId}/checklist`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ item_text: itemText })
+        });
+        
+        if (!response.ok) {
+            const data = await response.json();
+            alert(data.error || 'Error adding checklist item');
+            return;
+        }
+        
+        input.value = '';
+        await loadChecklistItems(currentChecklistTaskId);
+    } catch (error) {
+        console.error('Error adding checklist item:', error);
+        alert('Error adding item. Please try again.');
+    }
+}
+
+function handleChecklistItemKeyPress(event) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        addChecklistItem();
+    }
+}
+
+async function toggleChecklistItem(itemId, completed) {
+    try {
+        const response = await fetch(`/api/checklist-items/${itemId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ completed })
+        });
+        
+        if (!response.ok) {
+            console.error('Error updating checklist item');
+            return;
+        }
+        
+        // Reload to update UI
+        if (currentChecklistTaskId) {
+            await loadChecklistItems(currentChecklistTaskId);
+        }
+    } catch (error) {
+        console.error('Error toggling checklist item:', error);
+    }
+}
+
+async function deleteChecklistItem(itemId) {
+    if (!confirm('Are you sure you want to delete this item?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/checklist-items/${itemId}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) {
+            alert('Error deleting item');
+            return;
+        }
+        
+        // Reload checklist
+        if (currentChecklistTaskId) {
+            await loadChecklistItems(currentChecklistTaskId);
+        }
+    } catch (error) {
+        console.error('Error deleting checklist item:', error);
+        alert('Error deleting item. Please try again.');
+    }
+}
+
+async function loadTaskChecklist(taskId, container) {
+    try {
+        const response = await fetch(`/api/tasks/${taskId}/checklist`);
+        if (!response.ok) {
+            return; // No checklist or no access
+        }
+        
+        const items = await response.json();
+        if (items.length === 0) {
+            return; // No items to display
+        }
+        
+        const checklistLink = document.createElement('div');
+        checklistLink.className = 'task-checklist-link';
+        
+        const completedCount = items.filter(i => i.completed === 1).length;
+        const totalCount = items.length;
+        
+        const link = document.createElement('a');
+        link.href = '#';
+        link.className = 'checklist-link';
+        link.textContent = `📋 View List (${completedCount}/${totalCount})`;
+        link.onclick = (e) => {
+            e.preventDefault();
+            currentChecklistTaskId = taskId;
+            document.getElementById('checklist-popup-title').textContent = 'Attach List';
+            loadChecklistItems(taskId).then(() => {
+                document.getElementById('checklist-popup').classList.add('show');
+            });
+        };
+        
+        checklistLink.appendChild(link);
+        container.appendChild(checklistLink);
+    } catch (error) {
+        console.error('Error loading task checklist:', error);
     }
 }
 

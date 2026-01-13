@@ -177,6 +177,15 @@
                         <!-- Users (admins and non-admins) will be populated dynamically -->
                     </select>
                 </div>
+                <div class="form-group">
+                    <button type="button" class="btn-attach-list" id="attach-list-btn" onclick="openChecklistPopup()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M9 11l3 3L22 4"/>
+                            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+                        </svg>
+                        Attach List
+                    </button>
+                </div>
                 <div class="form-actions">
                     <button type="button" class="btn-cancel" onclick="closePopup()">Cancel</button>
                     <button type="submit" class="btn-save">Save</button>
@@ -304,6 +313,24 @@
                     <button type="submit" class="btn-save">Change Password</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Checklist Popup -->
+    <div id="checklist-popup" class="popup">
+        <div class="popup-content popup-content-small">
+            <span class="close" onclick="closeChecklistPopup()">&times;</span>
+            <h2 id="checklist-popup-title">Attach List</h2>
+            <div id="checklist-items-container" class="checklist-items-container">
+                <!-- Checklist items will be loaded here -->
+            </div>
+            <div class="checklist-add-item">
+                <input type="text" id="checklist-item-input" placeholder="Add an item..." onkeypress="handleChecklistItemKeyPress(event)">
+                <button type="button" class="btn-add-item" onclick="addChecklistItem()">Add</button>
+            </div>
+            <div class="form-actions">
+                <button type="button" class="btn-cancel" onclick="closeChecklistPopup()">Done</button>
+            </div>
         </div>
     </div>
 
