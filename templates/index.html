@@ -168,6 +168,16 @@
                     <label for="time-input">Time</label>
                     <input type="time" id="time-input">
                 </div>
+                <div class="form-group">
+                    <label for="recurrence-input">Recurrence</label>
+                    <select id="recurrence-input">
+                        <option value="">None</option>
+                        <option value="weekly">Weekly</option>
+                        <option value="bi-weekly">Bi-weekly</option>
+                        <option value="monthly">Monthly</option>
+                        <option value="yearly">Yearly</option>
+                    </select>
+                </div>
                 <div class="form-group" id="assign-group" style="display: none;">
                     <label for="assign-input">Assign to</label>
                     <select id="assign-input">
@@ -330,6 +340,21 @@
             </div>
             <div class="form-actions">
                 <button type="button" class="btn-cancel" onclick="closeChecklistPopup()">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Dialog -->
+    <div id="delete-confirm-dialog" class="popup">
+        <div class="popup-content popup-content-small">
+            <h2 id="delete-dialog-title">Delete Task</h2>
+            <p id="delete-dialog-message"></p>
+            <div class="form-actions" style="justify-content: space-between; gap: 10px;">
+                <button type="button" class="btn-cancel" onclick="cancelDeleteDialog()">Cancel</button>
+                <div style="display: flex; gap: 10px;">
+                    <button type="button" class="btn-secondary" id="delete-instance-btn" onclick="confirmDeleteInstance()">No, just this one</button>
+                    <button type="button" class="btn-delete" id="delete-all-btn" onclick="confirmDeleteAll()">Yes, delete all</button>
+                </div>
             </div>
         </div>
     </div>

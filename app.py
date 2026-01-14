@@ -1,9 +1,13 @@
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash, check_password_hash
+from calendar import monthrange
 import sqlite3
 import os
+import atexit
 from functools import wraps
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 app = Flask(__name__)
 # Use a fixed secret key for sessions (in production, use environment variable)
@@ -67,6 +71,13 @@ def init_db():
             conn.execute('ALTER TABLE tasks ADD COLUMN assigned_to INTEGER')
             conn.execute('CREATE INDEX IF NOT EXISTS idx_assigned_to ON tasks(assigned_to)')
         
+        if 'recurrence' not in columns:
+            conn.execute('ALTER TABLE tasks ADD COLUMN recurrence TEXT')
+        
+        if 'parent_task_id' not in columns:
+            conn.execute('ALTER TABLE tasks ADD COLUMN parent_task_id INTEGER')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_parent_task_id ON tasks(parent_task_id)')
+        
         conn.commit()
     except sqlite3.OperationalError:
         # Columns already exist, ignore
@@ -123,6 +134,251 @@ def init_db():
     
     conn.commit()
     conn.close()
+
+def calculate_recurring_dates(start_date_str, recurrence, end_date):
+    """Calculate all recurring dates from start_date up to end_date"""
+    if not start_date_str or not recurrence:
+        return []
+    
+    try:
+        start_date = datetime.fromisoformat(start_date_str.split('T')[0])
+    except:
+        # Handle date string format YYYY-MM-DD
+        start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+    
+    dates = []
+    current_date = start_date
+    original_day = start_date.day  # Store the original day to always try it first
+    
+    while current_date <= end_date:
+        dates.append(current_date.strftime('%Y-%m-%d'))
+        
+        if recurrence == 'daily':
+            current_date += timedelta(days=1)
+        elif recurrence == 'weekly':
+            current_date += timedelta(weeks=1)
+        elif recurrence == 'bi-weekly':
+            current_date += timedelta(weeks=2)
+        elif recurrence == 'monthly':
+            # Add one month, always try original day first, fall back to last day if needed
+            if current_date.month == 12:
+                next_month = 1
+                next_year = current_date.year + 1
+            else:
+                next_month = current_date.month + 1
+                next_year = current_date.year
+            
+            # Always try the original day first (e.g., 31st)
+            try:
+                current_date = current_date.replace(year=next_year, month=next_month, day=original_day)
+            except ValueError:
+                # Day doesn't exist in target month, use last day of that month
+                last_day = monthrange(next_year, next_month)[1]
+                current_date = current_date.replace(year=next_year, month=next_month, day=last_day)
+        elif recurrence == 'yearly':
+            # For yearly, also handle Feb 29 -> Feb 28 in non-leap years
+            try:
+                current_date = current_date.replace(year=current_date.year + 1, day=original_day)
+            except ValueError:
+                # Leap year edge case: Feb 29 -> Feb 28 in non-leap year
+                current_date = current_date.replace(year=current_date.year + 1, day=28)
+        else:
+            break
+    
+    return dates
+
+def generate_recurring_instances(conn, parent_task_id, start_date_str, recurrence, time_str, 
+                                user_id, created_by, visibility, assigned_to, end_date):
+    """Generate recurring task instances from start_date up to end_date"""
+    if not recurrence or not start_date_str:
+        return
+    
+    # Get the parent task details
+    parent_task = conn.execute('SELECT * FROM tasks WHERE id = ?', (parent_task_id,)).fetchone()
+    if not parent_task:
+        return
+    
+    dates = calculate_recurring_dates(start_date_str, recurrence, end_date)
+    
+    # Skip the first date (it's the original task)
+    if len(dates) > 1:
+        for date_str in dates[1:]:
+            # Check if instance already exists for this date
+            existing = conn.execute('''
+                SELECT id FROM tasks 
+                WHERE parent_task_id = ? AND date = ?
+            ''', (parent_task_id, date_str)).fetchone()
+            
+            if not existing:
+                conn.execute('''
+                    INSERT INTO tasks (task, date, time, user_id, created_by, visibility, 
+                                     assigned_to, recurrence, parent_task_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (parent_task['task'], date_str, time_str, user_id, created_by, 
+                      visibility, assigned_to, recurrence, parent_task_id))
+
+def ensure_recurring_instances_exist(conn, task_id, target_date_str=None):
+    """Ensure recurring instances exist up to target_date (default: 1 year from now)"""
+    task = conn.execute('SELECT * FROM tasks WHERE id = ?', (task_id,)).fetchone()
+    if not task or not task['recurrence'] or not task['date']:
+        return
+    
+    # If this is already an instance, get the parent
+    parent_id = task['parent_task_id'] if task['parent_task_id'] else task_id
+    parent_task = conn.execute('SELECT * FROM tasks WHERE id = ?', (parent_id,)).fetchone()
+    if not parent_task:
+        return
+    
+    # Determine end date
+    if target_date_str:
+        try:
+            end_date = datetime.strptime(target_date_str, '%Y-%m-%d')
+        except:
+            end_date = datetime.now() + timedelta(days=365)
+    else:
+        end_date = datetime.now() + timedelta(days=365)
+    
+    # Check what's the latest instance date (including parent if it's later)
+    latest_instance = conn.execute('''
+        SELECT MAX(date) as max_date FROM tasks 
+        WHERE (parent_task_id = ? OR id = ?) AND date IS NOT NULL
+    ''', (parent_id, parent_id)).fetchone()
+    
+    latest_date = None
+    if latest_instance and latest_instance['max_date']:
+        latest_date = datetime.strptime(latest_instance['max_date'], '%Y-%m-%d')
+    
+    # If we need more instances, generate them
+    if not latest_date or latest_date < end_date:
+        parent_date = datetime.strptime(parent_task['date'], '%Y-%m-%d')
+        recurrence = parent_task['recurrence']
+        
+        # Calculate the next occurrence date based on the recurrence pattern
+        original_day = parent_date.day  # Always use the original day from parent task
+        
+        if latest_date:
+            # Find the next occurrence after latest_date based on the pattern
+            next_date = latest_date
+            while next_date <= latest_date:
+                if recurrence == 'daily':
+                    next_date += timedelta(days=1)
+                elif recurrence == 'weekly':
+                    next_date += timedelta(weeks=1)
+                elif recurrence == 'bi-weekly':
+                    next_date += timedelta(weeks=2)
+                elif recurrence == 'monthly':
+                    # Add one month, always try original day first, fall back to last day if needed
+                    if next_date.month == 12:
+                        next_month = 1
+                        next_year = next_date.year + 1
+                    else:
+                        next_month = next_date.month + 1
+                        next_year = next_date.year
+                    
+                    # Always try the original day first (e.g., 31st)
+                    try:
+                        next_date = next_date.replace(year=next_year, month=next_month, day=original_day)
+                    except ValueError:
+                        # Day doesn't exist in target month, use last day of that month
+                        last_day = monthrange(next_year, next_month)[1]
+                        next_date = next_date.replace(year=next_year, month=next_month, day=last_day)
+                elif recurrence == 'yearly':
+                    # For yearly, also handle Feb 29 -> Feb 28 in non-leap years
+                    try:
+                        next_date = next_date.replace(year=next_date.year + 1, day=original_day)
+                    except ValueError:
+                        # Leap year edge case: Feb 29 -> Feb 28 in non-leap year
+                        next_date = next_date.replace(year=next_date.year + 1, day=28)
+                else:
+                    break
+            start_gen_date = next_date
+        else:
+            # First time generating - start from parent date
+            start_gen_date = parent_date
+        
+        # Only generate if start date is before or equal to end date
+        if start_gen_date <= end_date:
+            # Use calculate_recurring_dates to get all dates from start_gen_date to end_date
+            # This ensures we generate all months correctly
+            dates = calculate_recurring_dates(start_gen_date.strftime('%Y-%m-%d'), recurrence, end_date)
+            
+            # Get existing instance dates to avoid duplicates
+            existing_dates = set()
+            existing = conn.execute('''
+                SELECT date FROM tasks 
+                WHERE parent_task_id = ? AND date IS NOT NULL
+            ''', (parent_id,)).fetchall()
+            for row in existing:
+                existing_dates.add(row['date'])
+            
+            # Insert missing dates
+            # Include all dates from calculate_recurring_dates, but skip if they already exist
+            # Note: start_gen_date is the next date after latest_date, so we want to include it
+            for date_str in dates:
+                if date_str not in existing_dates:
+                    conn.execute('''
+                        INSERT INTO tasks (task, date, time, user_id, created_by, visibility, 
+                                         assigned_to, recurrence, parent_task_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (parent_task['task'], date_str, 
+                          parent_task['time'] if parent_task['time'] else None,
+                          parent_task['user_id'], parent_task['created_by'],
+                          parent_task['visibility'], parent_task['assigned_to'],
+                          recurrence, parent_id))
+
+def extend_recurring_instances_job():
+    """Weekly job to extend recurring task instances that are expiring soon and clean up old instances"""
+    conn = get_db()
+    try:
+        now = datetime.now()
+        # Check for instances expiring in the next month
+        one_month_ahead = now + timedelta(days=30)
+        target_date = one_month_ahead.strftime('%Y-%m-%d')
+        
+        # Delete instances that are more than 3 months old
+        three_months_ago = now - timedelta(days=90)
+        three_months_ago_str = three_months_ago.strftime('%Y-%m-%d')
+        
+        deleted_count = conn.execute('''
+            DELETE FROM tasks 
+            WHERE parent_task_id IS NOT NULL 
+            AND date IS NOT NULL 
+            AND date < ?
+        ''', (three_months_ago_str,)).rowcount
+        
+        # Find all parent recurring tasks
+        parent_tasks = conn.execute('''
+            SELECT DISTINCT id FROM tasks 
+            WHERE recurrence IS NOT NULL AND parent_task_id IS NULL
+        ''').fetchall()
+        
+        extended_count = 0
+        for parent in parent_tasks:
+            parent_id = parent['id']
+            
+            # Check the latest instance date
+            latest_instance = conn.execute('''
+                SELECT MAX(date) as max_date FROM tasks 
+                WHERE (parent_task_id = ? OR id = ?) AND date IS NOT NULL
+            ''', (parent_id, parent_id)).fetchone()
+            
+            if latest_instance and latest_instance['max_date']:
+                latest_date = datetime.strptime(latest_instance['max_date'], '%Y-%m-%d')
+                
+                # If latest instance is within the next month, extend by another year
+                if latest_date <= one_month_ahead:
+                    # Extend to 1 year from now
+                    extend_to_date = now + timedelta(days=365)
+                    ensure_recurring_instances_exist(conn, parent_id, extend_to_date.strftime('%Y-%m-%d'))
+                    extended_count += 1
+        
+        conn.commit()
+        print(f"[Weekly Job] Deleted {deleted_count} old instance(s) (>3 months), extended {extended_count} recurring task(s) that were expiring soon")
+    except Exception as e:
+        print(f"[Weekly Job] Error in weekly job: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
 
 def cleanup_old_completed_tasks():
     """Remove completed tasks older than 1 month"""
@@ -695,6 +951,15 @@ def get_tasks():
     user_id = session['user_id']
     is_admin = session.get('is_admin', False)
     
+    # Ensure recurring instances exist for all parent tasks (up to 1 year ahead)
+    parent_tasks = conn.execute('''
+        SELECT DISTINCT id FROM tasks 
+        WHERE recurrence IS NOT NULL AND parent_task_id IS NULL
+    ''').fetchall()
+    for parent in parent_tasks:
+        ensure_recurring_instances_exist(conn, parent['id'])
+    conn.commit()
+    
     # Build visibility filter
     if is_admin:
         # Admins see: 
@@ -737,7 +1002,7 @@ def get_tasks():
             FROM tasks t
             LEFT JOIN users u ON t.created_by = u.id
             LEFT JOIN users u2 ON t.assigned_to = u2.id
-            WHERE completed = 1 AND ({visibility_filter})
+            WHERE completed = 1 AND ({visibility_filter}) AND (t.parent_task_id IS NULL)
             ORDER BY completed_at DESC
         '''
         tasks = conn.execute(query, params).fetchall()
@@ -751,7 +1016,7 @@ def get_tasks():
             FROM tasks t
             LEFT JOIN users u ON t.created_by = u.id
             LEFT JOIN users u2 ON t.assigned_to = u2.id
-            WHERE completed = 0 AND ({visibility_filter})
+            WHERE completed = 0 AND ({visibility_filter}) AND (t.parent_task_id IS NULL)
             ORDER BY date ASC, time ASC, created_at ASC
         '''
         tasks = conn.execute(query, params).fetchall()
@@ -800,10 +1065,14 @@ def create_task():
                 visibility = 'all'
             assigned_to = None
     
+    recurrence = data.get('recurrence', None)
+    if recurrence and recurrence not in ['weekly', 'bi-weekly', 'monthly', 'yearly']:
+        recurrence = None
+    
     cursor = conn.execute('''
-        INSERT INTO tasks (task, date, time, user_id, created_by, visibility, assigned_to)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    ''', (data['task'], data.get('date'), data.get('time'), user_id, created_by, visibility, assigned_to))
+        INSERT INTO tasks (task, date, time, user_id, created_by, visibility, assigned_to, recurrence)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (data['task'], data.get('date'), data.get('time'), user_id, created_by, visibility, assigned_to, recurrence))
     
     conn.commit()
     task_id = cursor.lastrowid
@@ -817,6 +1086,13 @@ def create_task():
         ''', (data['task'], user_id, created_by)).fetchone()
         if task:
             task_id = task['id']
+    
+    # Generate recurring instances if recurrence is set and date exists
+    if recurrence and data.get('date'):
+        end_date = datetime.now() + timedelta(days=365)  # 1 year ahead
+        generate_recurring_instances(conn, task_id, data['date'], recurrence, data.get('time'),
+                                   user_id, created_by, visibility, assigned_to, end_date)
+        conn.commit()
     
     conn.close()
     
@@ -899,11 +1175,112 @@ def update_task(task_id):
                     visibility = task['visibility']
                 assigned_to = None
         
-        conn.execute('''
-            UPDATE tasks 
-            SET task = ?, date = ?, time = ?, visibility = ?, assigned_to = ?
-            WHERE id = ?
-        ''', (data['task'], data.get('date'), data.get('time'), visibility, assigned_to, task_id))
+        recurrence = data.get('recurrence', task['recurrence'] if task['recurrence'] else None)
+        if recurrence and recurrence not in ['weekly', 'bi-weekly', 'monthly', 'yearly']:
+            recurrence = None
+        if recurrence == '':
+            recurrence = None
+        
+        # Determine if this is a parent task or an instance
+        parent_id = task['parent_task_id'] if task['parent_task_id'] else task_id
+        is_parent = (parent_id == task_id)
+        
+        # Get parent task to check its current values
+        parent_task = conn.execute('SELECT * FROM tasks WHERE id = ?', (parent_id,)).fetchone()
+        if not parent_task:
+            conn.close()
+            return jsonify({'error': 'Parent task not found'}), 404
+        
+        # Get the new values
+        new_task_name = data.get('task', task['task'])
+        new_date = data.get('date', task['date'])
+        new_time = data.get('time', task['time'])
+        
+        # If updating an instance, update the parent and all instances
+        if not is_parent:
+            # Update parent task with new values
+            old_recurrence = parent_task['recurrence'] if parent_task['recurrence'] else None
+            
+            # Update parent's task name, time, visibility, assigned_to
+            conn.execute('''
+                UPDATE tasks 
+                SET task = ?, time = ?, visibility = ?, assigned_to = ?
+                WHERE id = ?
+            ''', (new_task_name, new_time, visibility, assigned_to, parent_id))
+            
+            # If recurrence changed, update parent's recurrence and regenerate instances
+            if recurrence != old_recurrence:
+                # Update parent's recurrence (keep parent's original date)
+                conn.execute('''
+                    UPDATE tasks 
+                    SET recurrence = ?
+                    WHERE id = ?
+                ''', (recurrence, parent_id))
+                
+                # Delete all future instances
+                conn.execute('''
+                    DELETE FROM tasks 
+                    WHERE parent_task_id = ? AND date > ?
+                ''', (parent_id, datetime.now().strftime('%Y-%m-%d')))
+                
+                # Regenerate instances if recurrence is set
+                parent_date = parent_task['date'] if parent_task['date'] else None
+                if recurrence and parent_date:
+                    end_date = datetime.now() + timedelta(days=365)
+                    generate_recurring_instances(conn, parent_id, parent_date, recurrence, 
+                                               new_time,
+                                               parent_task['user_id'], parent_task['created_by'],
+                                               visibility, assigned_to, end_date)
+            
+            # Update all instances with new task name, time, visibility, assigned_to
+            # (date is per-instance, recurrence is handled above)
+            conn.execute('''
+                UPDATE tasks 
+                SET task = ?, time = ?, visibility = ?, assigned_to = ?
+                WHERE parent_task_id = ?
+            ''', (new_task_name, new_time, visibility, assigned_to, parent_id))
+            
+            # Update this specific instance's date (if changed)
+            conn.execute('''
+                UPDATE tasks 
+                SET date = ?
+                WHERE id = ?
+            ''', (new_date, task_id))
+        else:
+            # Updating the parent task
+            old_recurrence = task['recurrence'] if task['recurrence'] else None
+            old_date = task['date'] if task['date'] else None
+            
+            # Check if recurrence or date changed
+            if (recurrence != old_recurrence) or (new_date != old_date and recurrence):
+                # Delete all future instances
+                conn.execute('''
+                    DELETE FROM tasks 
+                    WHERE parent_task_id = ? AND date > ?
+                ''', (parent_id, datetime.now().strftime('%Y-%m-%d')))
+                
+                # Regenerate instances if recurrence is set
+                if recurrence and new_date:
+                    end_date = datetime.now() + timedelta(days=365)
+                    generate_recurring_instances(conn, parent_id, new_date, recurrence, 
+                                               new_time,
+                                               task['user_id'], task['created_by'],
+                                               visibility, assigned_to, end_date)
+            
+            # Update parent task
+            conn.execute('''
+                UPDATE tasks 
+                SET task = ?, date = ?, time = ?, visibility = ?, assigned_to = ?, recurrence = ?
+                WHERE id = ?
+            ''', (new_task_name, new_date, new_time, visibility, assigned_to, recurrence, task_id))
+            
+            # Update all instances with new task name, time, visibility, assigned_to
+            # (date and recurrence are handled per-instance, so don't update those)
+            conn.execute('''
+                UPDATE tasks 
+                SET task = ?, time = ?, visibility = ?, assigned_to = ?
+                WHERE parent_task_id = ?
+            ''', (new_task_name, new_time, visibility, assigned_to, parent_id))
     
     conn.commit()
     conn.close()
@@ -917,6 +1294,9 @@ def delete_task(task_id):
     if not can_edit_tasks():
         return jsonify({'error': 'Permission denied. Only admins can delete tasks.'}), 403
     
+    # Get delete_all parameter from query string
+    delete_all = request.args.get('delete_all', 'false').lower() == 'true'
+    
     conn = get_db()
     
     # Verify task exists
@@ -925,12 +1305,104 @@ def delete_task(task_id):
         conn.close()
         return jsonify({'error': 'Task not found'}), 404
     
-    # Admins can delete any task
-    conn.execute('DELETE FROM tasks WHERE id = ?', (task_id,))
+    # Determine if this is a parent task or an instance
+    is_parent = (task['parent_task_id'] is None or task['parent_task_id'] == 0)
+    parent_id = task['parent_task_id'] if task['parent_task_id'] else task_id
+    
+    if delete_all:
+        # Delete all instances of this recurring task (including parent)
+        if is_parent:
+            # Delete all instances first, then parent
+            conn.execute('DELETE FROM tasks WHERE parent_task_id = ?', (task_id,))
+            conn.execute('DELETE FROM tasks WHERE id = ?', (task_id,))
+        else:
+            # Delete parent and all instances
+            conn.execute('DELETE FROM tasks WHERE parent_task_id = ? OR id = ?', (parent_id, parent_id))
+    else:
+        # Delete only this instance
+        if is_parent:
+            # If deleting parent without instances, just delete it
+            # But if it has instances, we need to delete them too (can't have orphaned instances)
+            instance_count = conn.execute('SELECT COUNT(*) as count FROM tasks WHERE parent_task_id = ?', (task_id,)).fetchone()['count']
+            if instance_count > 0:
+                # Has instances - delete them too
+                conn.execute('DELETE FROM tasks WHERE parent_task_id = ?', (task_id,))
+        conn.execute('DELETE FROM tasks WHERE id = ?', (task_id,))
+    
     conn.commit()
     conn.close()
     
     return jsonify({'message': 'Task deleted successfully'})
+
+@app.route('/api/tasks/dates', methods=['GET'])
+@login_required
+def get_task_dates():
+    """Get all dates that have tasks (including recurring instances) for calendar indicators"""
+    conn = get_db()
+    user_id = session['user_id']
+    is_admin = session.get('is_admin', False)
+    
+    # Get optional month/year parameters to determine date range
+    month = request.args.get('month')  # 0-11 (JavaScript month format)
+    year = request.args.get('year')
+    
+    # Calculate end date for instance generation
+    if month is not None and year is not None:
+        try:
+            month_num = int(month)
+            year_num = int(year)
+            # Get last day of the requested month
+            last_day = monthrange(year_num, month_num + 1)[1]
+            target_end_date = datetime(year_num, month_num + 1, last_day)
+        except:
+            target_end_date = datetime.now() + timedelta(days=365)
+    else:
+        # Default to 1 year ahead, but also check what dates we're actually querying
+        target_end_date = datetime.now() + timedelta(days=365)
+    
+    # Ensure recurring instances exist for all parent tasks up to target date
+    parent_tasks = conn.execute('''
+        SELECT DISTINCT id FROM tasks 
+        WHERE recurrence IS NOT NULL AND parent_task_id IS NULL
+    ''').fetchall()
+    for parent in parent_tasks:
+        ensure_recurring_instances_exist(conn, parent['id'], target_end_date.strftime('%Y-%m-%d'))
+    conn.commit()
+    
+    # Build visibility filter (same as get_tasks)
+    if is_admin:
+        visibility_filter = '''
+            ((visibility = 'all' AND assigned_to IS NULL) OR
+             (visibility = 'admins' AND assigned_to IS NULL) OR
+             (assigned_to IS NOT NULL AND assigned_to IN (SELECT id FROM users WHERE is_admin = 0)) OR
+             (assigned_to IS NOT NULL AND assigned_to IN (SELECT id FROM users WHERE is_admin = 1) AND visibility != 'private') OR
+             (visibility = 'private' AND created_by = ?) OR
+             (created_by IN (SELECT id FROM users WHERE is_admin = 0)))
+        '''
+        params = (user_id,)
+    else:
+        visibility_filter = '''
+            ((visibility = 'all' AND assigned_to IS NULL AND created_by IN (SELECT id FROM users WHERE is_admin = 1)) OR 
+             assigned_to = ? OR 
+             (created_by = ? AND visibility != 'admins'))
+        '''
+        params = (user_id, user_id)
+    
+    # Get all dates from tasks (including instances) that match visibility and are not completed
+    dates = conn.execute(f'''
+        SELECT DISTINCT date
+        FROM tasks t
+        WHERE date IS NOT NULL 
+          AND completed = 0 
+          AND ({visibility_filter})
+        ORDER BY date ASC
+    ''', params).fetchall()
+    
+    conn.close()
+    
+    # Return just the date strings
+    date_list = [row['date'] for row in dates]
+    return jsonify(date_list)
 
 @app.route('/api/tasks/date/<date>', methods=['GET'])
 @login_required
@@ -939,6 +1411,16 @@ def get_tasks_by_date(date):
     conn = get_db()
     user_id = session['user_id']
     is_admin = session.get('is_admin', False)
+    
+    # Ensure recurring instances exist up to the requested date
+    # This ensures that if a user clicks on a date in the future, instances are generated
+    parent_tasks = conn.execute('''
+        SELECT DISTINCT id FROM tasks 
+        WHERE recurrence IS NOT NULL AND parent_task_id IS NULL
+    ''').fetchall()
+    for parent in parent_tasks:
+        ensure_recurring_instances_exist(conn, parent['id'], date)
+    conn.commit()
     
     # Build visibility filter
     if is_admin:
@@ -1165,6 +1647,24 @@ def delete_checklist_item(item_id):
     
     return jsonify({'message': 'Checklist item deleted successfully'})
 
+# Initialize scheduler for background jobs
+scheduler = BackgroundScheduler()
+scheduler.start()
+
+# Schedule weekly job to extend recurring instances (runs every Monday at 2 AM)
+scheduler.add_job(
+    func=extend_recurring_instances_job,
+    trigger=CronTrigger(day_of_week='mon', hour=2, minute=0),
+    id='extend_recurring_instances',
+    name='Extend recurring task instances weekly',
+    replace_existing=True
+)
+
+# Shutdown scheduler when app exits
+atexit.register(lambda: scheduler.shutdown())
+
 if __name__ == '__main__':
     init_db()
+    # Run the job once immediately on startup to extend any expiring instances
+    extend_recurring_instances_job()
     app.run(host='0.0.0.0', port=5001, debug=True)
