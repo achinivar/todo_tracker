@@ -352,16 +352,35 @@ function changeMonth(direction) {
 }
 
 async function updateCalendarTaskIndicators() {
-    const tasks = await fetchTasks();
-    const dateSet = new Set(tasks.filter(t => t.date).map(t => t.date));
-    
-    document.querySelectorAll('.calendar-day').forEach(day => {
-        if (day.dataset.date && dateSet.has(day.dataset.date)) {
-            day.classList.add('has-tasks');
-        } else {
-            day.classList.remove('has-tasks');
-        }
-    });
+    // Fetch dates that have tasks (including recurring instances) for calendar
+    // Pass current month/year to ensure instances are generated for the viewed month
+    try {
+        const url = `/api/tasks/dates?month=${currentMonth}&year=${currentYear}`;
+        const response = await fetch(url);
+        const dates = await response.json();
+        const dateSet = new Set(dates);
+        
+        document.querySelectorAll('.calendar-day').forEach(day => {
+            if (day.dataset.date && dateSet.has(day.dataset.date)) {
+                day.classList.add('has-tasks');
+            } else {
+                day.classList.remove('has-tasks');
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching task dates for calendar:', error);
+        // Fallback to old method if new endpoint fails
+        const tasks = await fetchTasks();
+        const dateSet = new Set(tasks.filter(t => t.date).map(t => t.date));
+        
+        document.querySelectorAll('.calendar-day').forEach(day => {
+            if (day.dataset.date && dateSet.has(day.dataset.date)) {
+                day.classList.add('has-tasks');
+            } else {
+                day.classList.remove('has-tasks');
+            }
+        });
+    }
 }
 
 async function fetchTasks(showCompleted = false) {
@@ -562,7 +581,7 @@ function createTaskElement(task, isCompleted) {
         metaText += metaText ? ` at ${timeStr}` : `Time: ${timeStr}`;
     }
     
-    // Add creator, assignment, and visibility info
+    // Add creator, assignment, visibility, and recurrence info
     const infoParts = [];
     if (task.creator_username) {
         infoParts.push(`by ${task.creator_username}`);
@@ -576,6 +595,15 @@ function createTaskElement(task, isCompleted) {
             'private': 'Private'
         };
         infoParts.push(visibilityLabels[task.visibility] || task.visibility);
+    }
+    if (task.recurrence) {
+        const recurrenceLabels = {
+            'weekly': 'Weekly',
+            'bi-weekly': 'Bi-weekly',
+            'monthly': 'Monthly',
+            'yearly': 'Yearly'
+        };
+        infoParts.push(`🔄 ${recurrenceLabels[task.recurrence] || task.recurrence}`);
     }
     
     if (infoParts.length > 0) {
@@ -625,7 +653,7 @@ function createTaskElement(task, isCompleted) {
             deleteBtn.type = 'button';
             deleteBtn.className = 'btn-action btn-delete';
             deleteBtn.textContent = 'Delete';
-            deleteBtn.onclick = () => deleteTask(task.id);
+            deleteBtn.onclick = () => deleteTask(task.id, task);
             actions.appendChild(deleteBtn);
         } else {
             // Regular users can request to mark task as complete
@@ -671,6 +699,7 @@ async function openAddPopup() {
     taskInput.style.height = 'auto';
     document.getElementById('date-input').value = '';
     document.getElementById('time-input').value = '';
+    document.getElementById('recurrence-input').value = '';
     
     // Show/hide assign dropdown for admins only
     const assignGroup = document.getElementById('assign-group');
@@ -726,6 +755,7 @@ async function editTask(task) {
     autoResizeTextarea(taskInput);
     document.getElementById('date-input').value = task.date || '';
     document.getElementById('time-input').value = task.time || '';
+    document.getElementById('recurrence-input').value = task.recurrence || '';
     
     // Show/hide assign dropdown for admins only
     const assignGroup = document.getElementById('assign-group');
@@ -776,6 +806,7 @@ async function saveTask(event) {
     const task = document.getElementById('task-input').value;
     const date = document.getElementById('date-input').value || null;
     const time = document.getElementById('time-input').value || null;
+    const recurrence = document.getElementById('recurrence-input').value || null;
     
     let assigned_to = null;
     let visibility = 'all';
@@ -801,7 +832,7 @@ async function saveTask(event) {
         assigned_to = null;
     }
     
-    const taskData = { task, date, time, visibility, assigned_to };
+    const taskData = { task, date, time, visibility, assigned_to, recurrence };
     
     try {
         let taskId;
@@ -811,6 +842,13 @@ async function saveTask(event) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(taskData)
             });
+            
+            if (!response.ok) {
+                const errorData = await response.json();
+                alert(errorData.error || 'Error updating task. Please try again.');
+                return;
+            }
+            
             taskId = editingTaskId;
         } else {
             const response = await fetch('/api/tasks', {
@@ -818,6 +856,13 @@ async function saveTask(event) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(taskData)
             });
+            
+            if (!response.ok) {
+                const errorData = await response.json();
+                alert(errorData.error || 'Error creating task. Please try again.');
+                return;
+            }
+            
             const data = await response.json();
             taskId = data.id;
         }
@@ -850,15 +895,93 @@ async function markTaskComplete(taskId, completed) {
     }
 }
 
-async function deleteTask(taskId) {
-    if (!confirm('Are you sure you want to delete this task?')) {
-        return;
+let pendingDeleteTaskId = null;
+let pendingDeleteAll = false;
+
+async function deleteTask(taskId, taskData = null) {
+    // If taskData is not provided, fetch it
+    if (!taskData) {
+        try {
+            const response = await fetch(`/api/tasks?completed=false`);
+            const tasks = await response.json();
+            taskData = tasks.find(t => t.id === taskId);
+        } catch (error) {
+            console.error('Error fetching task data:', error);
+        }
     }
     
+    // Check if this is a recurring task (parent or instance)
+    const isRecurring = taskData && (taskData.recurrence || taskData.parent_task_id);
+    const isParent = taskData && taskData.recurrence && !taskData.parent_task_id;
+    
+    if (isRecurring) {
+        // Show custom dialog for recurring tasks
+        pendingDeleteTaskId = taskId;
+        const dialog = document.getElementById('delete-confirm-dialog');
+        const title = document.getElementById('delete-dialog-title');
+        const message = document.getElementById('delete-dialog-message');
+        const instanceBtn = document.getElementById('delete-instance-btn');
+        const allBtn = document.getElementById('delete-all-btn');
+        
+        if (isParent) {
+            title.textContent = 'Delete Recurring Task';
+            message.textContent = 'This is a recurring task. Do you want to delete all instances?';
+            instanceBtn.style.display = 'none'; // Hide "just this one" for parent
+            allBtn.textContent = 'Yes, delete all';
+        } else {
+            title.textContent = 'Delete Task Instance';
+            message.textContent = 'This is an instance of a recurring task. Do you want to delete all instances?';
+            instanceBtn.style.display = 'block';
+            allBtn.textContent = 'Yes, delete all';
+        }
+        
+        dialog.classList.add('show');
+    } else {
+        // Non-recurring task - simple confirmation
+        if (!confirm('Are you sure you want to delete this task?')) {
+            return;
+        }
+        // Proceed with deletion
+        await executeDelete(taskId, false);
+    }
+}
+
+function cancelDeleteDialog() {
+    const dialog = document.getElementById('delete-confirm-dialog');
+    dialog.classList.remove('show');
+    pendingDeleteTaskId = null;
+    pendingDeleteAll = false;
+}
+
+function confirmDeleteInstance() {
+    if (pendingDeleteTaskId) {
+        executeDelete(pendingDeleteTaskId, false);
+        cancelDeleteDialog();
+    }
+}
+
+function confirmDeleteAll() {
+    if (pendingDeleteTaskId) {
+        executeDelete(pendingDeleteTaskId, true);
+        cancelDeleteDialog();
+    }
+}
+
+async function executeDelete(taskId, deleteAll) {
     try {
-        await fetch(`/api/tasks/${taskId}`, {
+        const url = deleteAll 
+            ? `/api/tasks/${taskId}?delete_all=true`
+            : `/api/tasks/${taskId}`;
+        
+        const response = await fetch(url, {
             method: 'DELETE'
         });
+        
+        if (!response.ok) {
+            const data = await response.json();
+            alert(data.error || 'Error deleting task');
+            return;
+        }
         
         loadTasks();
     } catch (error) {
@@ -957,6 +1080,10 @@ window.onclick = function(event) {
     }
     if (event.target === checklistPopup) {
         closeChecklistPopup();
+    }
+    const deleteDialog = document.getElementById('delete-confirm-dialog');
+    if (event.target === deleteDialog) {
+        cancelDeleteDialog();
     }
 }
 
@@ -1402,6 +1529,7 @@ async function openChecklistPopup() {
         // Save the task first
         const date = document.getElementById('date-input').value || null;
         const time = document.getElementById('time-input').value || null;
+        const recurrence = document.getElementById('recurrence-input').value || null;
         
         let assigned_to = null;
         let visibility = 'all';
@@ -1426,7 +1554,7 @@ async function openChecklistPopup() {
             const response = await fetch('/api/tasks', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ task: taskText, date, time, visibility, assigned_to })
+                body: JSON.stringify({ task: taskText, date, time, visibility, assigned_to, recurrence })
             });
             
             if (!response.ok) {
