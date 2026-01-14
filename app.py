@@ -1069,6 +1069,11 @@ def create_task():
     if recurrence and recurrence not in ['weekly', 'bi-weekly', 'monthly', 'yearly']:
         recurrence = None
     
+    # Validate: recurring tasks must have a date
+    if recurrence and not data.get('date'):
+        conn.close()
+        return jsonify({'error': 'Recurring tasks require a start date.'}), 400
+    
     cursor = conn.execute('''
         INSERT INTO tasks (task, date, time, user_id, created_by, visibility, assigned_to, recurrence)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -1195,6 +1200,11 @@ def update_task(task_id):
         new_task_name = data.get('task', task['task'])
         new_date = data.get('date', task['date'])
         new_time = data.get('time', task['time'])
+        
+        # Validate: recurring tasks must have a date
+        if recurrence and not new_date:
+            conn.close()
+            return jsonify({'error': 'Recurring tasks require a start date.'}), 400
         
         # If updating an instance, update the parent and all instances
         if not is_parent:

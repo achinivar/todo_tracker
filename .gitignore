@@ -29,3 +29,6 @@ Thumbs.db
 
 # Secret key
 .secret_key
+
+# Local scripts directory
+local_scripts/
