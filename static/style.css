@@ -520,6 +520,15 @@ body:has(.popup.show) {
     border-color: #667eea;
 }
 
+.date-time-row {
+    display: flex;
+    gap: 10px;
+}
+
+.date-time-row input {
+    flex: 1;
+}
+
 .password-input-container {
     position: relative;
     display: flex;
@@ -599,6 +608,52 @@ body:has(.popup.show) {
     cursor: pointer;
     font-size: 16px;
     font-weight: 600;
+}
+
+.btn-add-task-day {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+    font-weight: 500;
+    margin-right: 30px;
+}
+
+.btn-add-task-day:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+}
+
+.btn-add-task-day svg {
+    width: 18px;
+    height: 18px;
+}
+
+@media screen and (max-width: 768px) {
+    .btn-add-task-day {
+        padding: 8px;
+        min-width: 36px;
+        width: 36px;
+        height: 36px;
+        justify-content: center;
+        font-size: 0;
+        line-height: 0;
+        margin-right: 25px;
+    }
+    
+    .btn-add-task-day svg {
+        width: 20px;
+        height: 20px;
+        flex-shrink: 0;
+        display: block;
+    }
 }
 
 .btn-save:hover {

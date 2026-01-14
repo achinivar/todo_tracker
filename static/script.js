@@ -690,14 +690,14 @@ function toggleSection(section) {
     content.querySelector('.task-group-content').classList.toggle('collapsed');
 }
 
-async function openAddPopup() {
+async function openAddPopup(prefillDate = null) {
     editingTaskId = null;
     currentChecklistTaskId = null;
     document.getElementById('popup-title').textContent = 'Add Task';
     const taskInput = document.getElementById('task-input');
     taskInput.value = '';
     taskInput.style.height = 'auto';
-    document.getElementById('date-input').value = '';
+    document.getElementById('date-input').value = prefillDate || '';
     document.getElementById('time-input').value = '';
     document.getElementById('recurrence-input').value = '';
     
@@ -747,6 +747,12 @@ function closePopup() {
 }
 
 async function editTask(task) {
+    // Close day popup if it's open
+    const dayPopup = document.getElementById('day-popup');
+    if (dayPopup.classList.contains('show')) {
+        closeDayPopup();
+    }
+    
     editingTaskId = task.id;
     currentChecklistTaskId = task.id;
     document.getElementById('popup-title').textContent = 'Edit Task';
@@ -807,6 +813,12 @@ async function saveTask(event) {
     const date = document.getElementById('date-input').value || null;
     const time = document.getElementById('time-input').value || null;
     const recurrence = document.getElementById('recurrence-input').value || null;
+    
+    // Validate: recurring tasks must have a date
+    if (recurrence && !date) {
+        alert('Recurring tasks require a start date.');
+        return;
+    }
     
     let assigned_to = null;
     let visibility = 'all';
@@ -983,6 +995,14 @@ async function executeDelete(taskId, deleteAll) {
             return;
         }
         
+        // Check if day popup is open and refresh it
+        const dayPopup = document.getElementById('day-popup');
+        if (dayPopup.classList.contains('show') && currentDayDateStr) {
+            // Reload tasks for the current day
+            await showDayTasks(currentDayDateStr);
+        }
+        
+        // Reload main tasks list
         loadTasks();
     } catch (error) {
         console.error('Error deleting task:', error);
@@ -1009,8 +1029,14 @@ function toggleCompletedTasks() {
     loadTasks();
 }
 
+// Store the current day's date for the Add Task button
+let currentDayDateStr = null;
+
 async function showDayTasks(dateStr) {
     try {
+        // Store the date string for the Add Task button
+        currentDayDateStr = dateStr;
+        
         const response = await fetch(`/api/tasks/date/${dateStr}`);
         const tasks = await response.json();
         
@@ -1047,6 +1073,13 @@ async function showDayTasks(dateStr) {
     } catch (error) {
         console.error('Error fetching day tasks:', error);
         alert('Error loading tasks for this day.');
+    }
+}
+
+function openAddTaskFromDay() {
+    if (currentDayDateStr) {
+        closeDayPopup();
+        openAddPopup(currentDayDateStr);
     }
 }
 

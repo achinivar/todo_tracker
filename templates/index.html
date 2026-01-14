@@ -161,12 +161,11 @@
                     <textarea id="task-input" rows="1" required></textarea>
                 </div>
                 <div class="form-group">
-                    <label for="date-input">Date</label>
-                    <input type="date" id="date-input">
-                </div>
-                <div class="form-group">
-                    <label for="time-input">Time</label>
-                    <input type="time" id="time-input">
+                    <label>Date & Time</label>
+                    <div class="date-time-row">
+                        <input type="date" id="date-input" placeholder="Date">
+                        <input type="time" id="time-input" placeholder="Time">
+                    </div>
                 </div>
                 <div class="form-group">
                     <label for="recurrence-input">Recurrence</label>
@@ -208,7 +207,16 @@
     <div id="day-popup" class="popup">
         <div class="popup-content">
             <span class="close" onclick="closeDayPopup()">&times;</span>
-            <h2 id="day-popup-title">Tasks for <span id="day-weekday"></span><br><span id="day-date"></span></h2>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2 id="day-popup-title" style="margin: 0;">Tasks for <span id="day-weekday"></span><br><span id="day-date"></span></h2>
+                <button type="button" class="btn-add-task-day" onclick="openAddTaskFromDay()" title="Add task for this day">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                    Add Task
+                </button>
+            </div>
             <div id="day-tasks-content"></div>
         </div>
     </div>
