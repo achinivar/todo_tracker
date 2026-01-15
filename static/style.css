@@ -382,8 +382,8 @@ header h1 {
 .complete-slider {
     width: 100%;
     appearance: none;
-    height: 34px;
-    border-radius: 18px;
+    height: 32px;
+    border-radius: 16px;
     background: #eef1f4;
     border: 1px solid #d7dbe0;
     outline: none;
@@ -391,33 +391,31 @@ header h1 {
 
 .complete-slider::-webkit-slider-thumb {
     appearance: none;
-    width: 30px;
-    height: 30px;
-    border-radius: 50%;
-    background: #28a745;
+    width: 46px;
+    height: 36px;
+    border-radius: 8px;
+    background-color: #28a745;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='16' viewBox='0 0 24 16'><path d='M5 8h10' stroke='white' stroke-width='2' stroke-linecap='round'/><path d='M11 4l4 4-4 4' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 20px 14px;
     border: 2px solid #ffffff;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
     cursor: pointer;
 }
 
 .complete-slider::-moz-range-thumb {
-    width: 30px;
-    height: 30px;
-    border-radius: 50%;
-    background: #28a745;
+    width: 46px;
+    height: 36px;
+    border-radius: 8px;
+    background-color: #28a745;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='16' viewBox='0 0 24 16'><path d='M5 8h10' stroke='white' stroke-width='2' stroke-linecap='round'/><path d='M11 4l4 4-4 4' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 20px 14px;
     border: 2px solid #ffffff;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
     cursor: pointer;
-}
-
-.complete-slider-label {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    font-size: 12px;
-    color: #6c757d;
-    pointer-events: none;
 }
 
 .btn-action {
@@ -942,6 +940,7 @@ body:has(.popup.show) {
         box-sizing: border-box !important;
         max-width: 100% !important;
         min-width: 0 !important;
+        appearance: none;
         -webkit-appearance: none;
         -moz-appearance: textfield;
     }
@@ -1067,6 +1066,7 @@ body:has(.popup.show) {
         min-width: 0 !important;
         min-height: 44px !important;
         line-height: 1.5 !important;
+        appearance: none;
         -webkit-appearance: none;
         -moz-appearance: textfield;
     }
