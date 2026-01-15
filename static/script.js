@@ -774,12 +774,7 @@ function createTaskElement(task, isCompleted) {
             slider.className = 'complete-slider';
             slider.setAttribute('aria-label', 'Slide to complete');
 
-            const sliderLabel = document.createElement('span');
-            sliderLabel.className = 'complete-slider-label';
-            sliderLabel.textContent = 'Slide to complete';
-
             sliderWrap.appendChild(slider);
-            sliderWrap.appendChild(sliderLabel);
             mobileActions.appendChild(sliderWrap);
 
             attachCompleteSlider(slider, task.id);
