@@ -33,11 +33,12 @@ if [ ! -f "$CERT_PATH" ] || [ ! -f "$KEY_PATH" ]; then
     mkdir -p "$CERT_DIR"
     mkcert -install
     HOSTNAME="$(hostname)"
+    HOSTNAME_LOCAL="${HOSTNAME}.local"
     LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
     if [ -n "$LAN_IP" ]; then
-        mkcert -key-file "$KEY_PATH" -cert-file "$CERT_PATH" localhost 127.0.0.1 ::1 "$HOSTNAME" "$LAN_IP"
+        mkcert -key-file "$KEY_PATH" -cert-file "$CERT_PATH" localhost 127.0.0.1 ::1 "$HOSTNAME" "$HOSTNAME_LOCAL" "$LAN_IP"
     else
-        mkcert -key-file "$KEY_PATH" -cert-file "$CERT_PATH" localhost 127.0.0.1 ::1 "$HOSTNAME"
+        mkcert -key-file "$KEY_PATH" -cert-file "$CERT_PATH" localhost 127.0.0.1 ::1 "$HOSTNAME" "$HOSTNAME_LOCAL"
     fi
 fi
 

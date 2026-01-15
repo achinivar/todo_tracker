@@ -55,7 +55,7 @@ Follow the official instructions for your OS: https://github.com/FiloSottile/mkc
      https://raspberrypi.local:5001
      ```
 
-The startup script generates a certificate for `localhost`, your machine hostname, and the first LAN IP it detects.
+The startup script generates a certificate for `localhost`, your machine hostname, `hostname.local`, and the first LAN IP it detects.
 If your LAN IP changes, delete `.certs/` and re-run the script to regenerate the cert.
 
 ## Hosting on Railway
