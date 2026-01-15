@@ -22,13 +22,518 @@ function autoResizeTextarea(textarea) {
     textarea.style.height = textarea.scrollHeight + 'px';
 }
 
+// Install prompt handling
+let deferredPrompt = null;
+let isInstalled = false;
+
+// Check if app is already installed
+function checkIfInstalled() {
+    // Check if running in standalone mode (installed)
+    if (window.matchMedia('(display-mode: standalone)').matches || 
+        window.navigator.standalone === true) {
+        isInstalled = true;
+        return true;
+    }
+    return false;
+}
+
+// Service Worker Registration
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js', { scope: '/' })
+            .then((registration) => {
+                console.log('Service Worker registered successfully:', registration.scope);
+            })
+            .catch((error) => {
+                console.log('Service Worker registration failed:', error);
+            });
+    });
+}
+
+// Listen for beforeinstallprompt event (Chrome/Android)
+window.addEventListener('beforeinstallprompt', (e) => {
+    // Prevent the mini-infobar from appearing
+    e.preventDefault();
+    // Stash the event so it can be triggered later
+    deferredPrompt = e;
+    // Show install banner if not already installed
+    if (!checkIfInstalled() && !localStorage.getItem('installBannerDismissed')) {
+        showInstallBanner('chrome');
+    }
+});
+
+// Listen for app installed event
+window.addEventListener('appinstalled', () => {
+    console.log('PWA was installed');
+    isInstalled = true;
+    hideInstallBanner();
+    deferredPrompt = null;
+});
+
+// Show install banner
+function showInstallBanner(platform) {
+    const banner = document.getElementById('install-banner');
+    const bannerText = document.getElementById('install-banner-text');
+    const installButton = document.getElementById('install-button');
+    
+    if (!banner || checkIfInstalled()) return;
+    
+    if (platform === 'safari') {
+        bannerText.textContent = 'Add Task Tracker to your home screen';
+        installButton.textContent = 'Show Instructions';
+    } else {
+        bannerText.textContent = 'Install Task Tracker for quick access';
+        installButton.textContent = 'Install';
+    }
+    
+    banner.style.display = 'block';
+}
+
+// Hide install banner
+function hideInstallBanner() {
+    const banner = document.getElementById('install-banner');
+    if (banner) {
+        banner.style.display = 'none';
+    }
+}
+
+// Dismiss install banner
+function dismissInstallBanner() {
+    hideInstallBanner();
+    localStorage.setItem('installBannerDismissed', 'true');
+}
+
+// Handle install button click
+function handleInstallClick() {
+    // Check if it's Safari
+    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    
+    if ((isSafari || isIOS) && !window.navigator.standalone) {
+        // Show Safari instructions
+        showSafariInstallInstructions();
+        return;
+    }
+    
+    // For Chrome/Android, use the deferred prompt
+    if (deferredPrompt) {
+        // Show the install prompt
+        deferredPrompt.prompt();
+        
+        // Wait for the user to respond
+        deferredPrompt.userChoice.then((choiceResult) => {
+            if (choiceResult.outcome === 'accepted') {
+                console.log('User accepted the install prompt');
+            } else {
+                console.log('User dismissed the install prompt');
+            }
+            deferredPrompt = null;
+            hideInstallBanner();
+        });
+    } else {
+        // Fallback: show instructions
+        showInstallInstructions();
+    }
+}
+
+// Show Safari install instructions
+function showSafariInstallInstructions() {
+    const message = 'To add Task Tracker to your home screen:\n\n' +
+                   '1. Tap the Share button (square with arrow) at the bottom\n' +
+                   '2. Scroll down and tap "Add to Home Screen"\n' +
+                   '3. Tap "Add" in the top right\n\n' +
+                   'The app will then appear on your home screen!';
+    alert(message);
+    dismissInstallBanner();
+}
+
+// Show general install instructions
+function showInstallInstructions() {
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const isAndroid = /Android/.test(navigator.userAgent);
+    
+    let message = '';
+    if (isIOS) {
+        message = 'To install:\n\n1. Tap the Share button (square with arrow)\n2. Tap "Add to Home Screen"\n3. Tap "Add"';
+    } else if (isAndroid) {
+        message = 'To install:\n\n1. Tap the menu (three dots) in the top right\n2. Tap "Add to Home Screen" or "Install app"\n3. Tap "Add" or "Install"';
+    } else {
+        message = 'To install:\n\n1. Look for the install icon in your browser\'s address bar\n2. Or use the browser menu to install the app';
+    }
+    
+    alert(message);
+    dismissInstallBanner();
+}
+
+// Check on page load if we should show install banner
+window.addEventListener('load', () => {
+    // Wait a bit for service worker to register
+    setTimeout(() => {
+        if (checkIfInstalled()) {
+            return; // Already installed
+        }
+        
+        if (localStorage.getItem('installBannerDismissed')) {
+            return; // User dismissed it
+        }
+        
+        // Check if it's Safari/iOS
+        const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        
+        // For Safari/iOS, show banner after a delay
+        if ((isSafari || isIOS) && !window.navigator.standalone) {
+            setTimeout(() => {
+                showInstallBanner('safari');
+            }, 2000); // Show after 2 seconds
+        }
+        // For Chrome/Android, the beforeinstallprompt event will handle it
+    }, 1000);
+    
+    // Don't request notification permission here - wait for authentication
+});
+
+// Notification Support
+let notificationPermission = 'default';
+let notificationInterval = null;
+let notificationSetupDone = false;
+
+// Request notification permission (manual - called from menu)
+async function requestNotificationPermissionManual() {
+    // Check if we're on HTTPS (required for notifications)
+    const isSecureContext = window.isSecureContext || window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    
+    if (!isSecureContext) {
+        alert('Notifications require HTTPS!\n\n' +
+              'You are currently accessing the site via HTTP. To enable notifications:\n\n' +
+              '1. Set up HTTPS/SSL for your server\n' +
+              '2. Access the site via https:// instead of http://\n\n' +
+              'For local development, you can use:\n' +
+              '- localhost (works with HTTP)\n' +
+              '- A self-signed certificate\n' +
+              '- A reverse proxy like nginx with SSL');
+        return;
+    }
+    
+    if (!('Notification' in window)) {
+        alert('This browser does not support notifications.');
+        return;
+    }
+    
+    if (Notification.permission === 'granted') {
+        alert('Notifications are already enabled!');
+        updateUserUI();
+        return;
+    }
+    
+    if (Notification.permission === 'denied') {
+        alert('Notifications are blocked. Please enable them in your browser settings:\n\n' +
+              'Safari: Settings > Safari > Website Settings > Notifications\n' +
+              'Chrome: Settings > Privacy > Site Settings > Notifications');
+        return;
+    }
+    
+    try {
+        // Request permission
+        const permission = await Notification.requestPermission();
+        
+        if (permission === 'granted') {
+            notificationPermission = 'granted';
+            setupNotificationScheduling();
+            updateUserUI();
+            alert('Notifications enabled! You will receive reminders for your tasks.');
+        } else if (permission === 'denied') {
+            alert('Notifications were denied. You can enable them later from the user menu.');
+            updateUserUI();
+        }
+    } catch (error) {
+        console.error('Error requesting notification permission:', error);
+        alert('Error requesting notification permission. Please try again.');
+    }
+}
+
+// Request notification permission (automatic - not used currently)
+async function requestNotificationPermission() {
+    if (!('Notification' in window)) {
+        console.log('This browser does not support notifications');
+        return;
+    }
+    
+    notificationPermission = Notification.permission;
+    // Don't setup here - wait for checkAuth to call setupNotificationScheduling
+}
+
+// Setup notification scheduling after permission is granted
+async function setupNotificationScheduling() {
+    if (Notification.permission !== 'granted') {
+        return;
+    }
+    
+    // Prevent multiple setups
+    if (notificationSetupDone) {
+        return;
+    }
+    
+    notificationSetupDone = true;
+    
+    // Clear any existing interval
+    if (notificationInterval) {
+        clearInterval(notificationInterval);
+    }
+    
+    // Schedule notifications for all tasks
+    await scheduleAllTaskNotifications();
+    
+    // Check for due tasks every minute
+    notificationInterval = setInterval(checkAndSendNotifications, 60000);
+    
+    // Also check immediately
+    checkAndSendNotifications();
+}
+
+// Schedule notifications for all tasks
+async function scheduleAllTaskNotifications() {
+    if (Notification.permission !== 'granted') {
+        return;
+    }
+    
+    try {
+        const tasks = await fetchTasks(false);
+        const today = new Date().toISOString().split('T')[0];
+        const tasksByDate = {};
+        
+        // Group tasks by date
+        tasks.forEach(task => {
+            if (!task.date || task.completed) return;
+            
+            if (!tasksByDate[task.date]) {
+                tasksByDate[task.date] = [];
+            }
+            tasksByDate[task.date].push(task);
+        });
+        
+        // Schedule notifications
+        for (const [date, dateTasks] of Object.entries(tasksByDate)) {
+            if (date < today) continue; // Skip past dates
+            
+            const tasksWithTime = dateTasks.filter(t => t.time);
+            const tasksWithoutTime = dateTasks.filter(t => !t.time);
+            
+            // Schedule individual notifications for tasks with time
+            tasksWithTime.forEach(task => {
+                scheduleTaskNotification(task);
+            });
+            
+            // Schedule single notification at 7am for tasks without time
+            if (tasksWithoutTime.length > 0) {
+                scheduleDayNotification(date, tasksWithoutTime);
+            }
+        }
+    } catch (error) {
+        console.error('Error scheduling notifications:', error);
+    }
+}
+
+// Schedule notification for a single task with time
+function scheduleTaskNotification(task) {
+    if (!task.date || !task.time || task.completed) return;
+    
+    const [year, month, day] = task.date.split('-').map(Number);
+    const [hours, minutes] = task.time.split(':').map(Number);
+    
+    const notificationTime = new Date(year, month - 1, day, hours, minutes);
+    const now = new Date();
+    
+    // Only schedule if notification time is in the future
+    if (notificationTime <= now) return;
+    
+    // Store notification data
+    const notificationData = {
+        type: 'task',
+        taskId: task.id,
+        date: task.date,
+        time: notificationTime.getTime()
+    };
+    
+    // Store in IndexedDB or localStorage for service worker to access
+    storeNotificationSchedule(notificationData);
+}
+
+// Schedule notification for a day (7am) when there are tasks without time
+function scheduleDayNotification(date, tasks) {
+    const [year, month, day] = date.split('-').map(Number);
+    const notificationTime = new Date(year, month - 1, day, 7, 0);
+    const now = new Date();
+    
+    // Only schedule if notification time is in the future
+    if (notificationTime <= now) return;
+    
+    // Store notification data
+    const notificationData = {
+        type: 'day',
+        date: date,
+        taskCount: tasks.length,
+        time: notificationTime.getTime()
+    };
+    
+    storeNotificationSchedule(notificationData);
+}
+
+// Store notification schedule
+function storeNotificationSchedule(data) {
+    if (!('indexedDB' in window)) {
+        // Fallback to localStorage
+        const key = `notification_${data.type}_${data.date}_${data.time}`;
+        localStorage.setItem(key, JSON.stringify(data));
+        return;
+    }
+    
+    // Use IndexedDB for better storage
+    const request = indexedDB.open('TaskTrackerNotifications', 1);
+    
+    request.onupgradeneeded = (event) => {
+        const db = event.target.result;
+        if (!db.objectStoreNames.contains('notifications')) {
+            db.createObjectStore('notifications', { keyPath: 'id', autoIncrement: true });
+        }
+    };
+    
+    request.onsuccess = (event) => {
+        const db = event.target.result;
+        const transaction = db.transaction(['notifications'], 'readwrite');
+        const store = transaction.objectStore('notifications');
+        
+        const notificationRecord = {
+            type: data.type,
+            date: data.date,
+            time: data.time,
+            taskId: data.taskId,
+            taskCount: data.taskCount,
+            sent: false
+        };
+        
+        store.add(notificationRecord);
+    };
+}
+
+// Check and send notifications for due tasks
+async function checkAndSendNotifications() {
+    if (Notification.permission !== 'granted') return;
+    
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    const currentTime = now.getHours() * 60 + now.getMinutes(); // Minutes since midnight
+    const sevenAM = 7 * 60; // 7:00 AM in minutes
+    
+    try {
+        const tasks = await fetchTasks(false);
+        const todayTasks = tasks.filter(t => t.date === today && !t.completed);
+        
+        // Check for tasks with specific times
+        todayTasks.forEach(task => {
+            if (task.time) {
+                const [hours, minutes] = task.time.split(':').map(Number);
+                const taskTime = hours * 60 + minutes;
+                const timeDiff = currentTime - taskTime;
+                
+                // Send notification if it's within 1 minute of the task time (past or future)
+                if (timeDiff <= 1) {
+                    sendTaskNotification(task);
+                }
+            }
+        });
+        
+        // Check for 7am notification (tasks without time)
+        // Check if current time is between 7:00 and 7:02 (2 minute window)
+        if (currentTime >= sevenAM && currentTime < sevenAM + 2) {
+            const tasksWithoutTime = todayTasks.filter(t => !t.time);
+            if (tasksWithoutTime.length > 0) {
+                sendDayNotification(today, tasksWithoutTime);
+            }
+        }
+    } catch (error) {
+        console.error('Error checking notifications:', error);
+    }
+}
+
+// Send notification for a specific task
+async function sendTaskNotification(task) {
+    if (Notification.permission !== 'granted') return;
+    
+    // Check if we already sent this notification today
+    const notificationKey = `notification_sent_${task.id}_${task.date}`;
+    if (localStorage.getItem(notificationKey)) return;
+    
+    const registration = await navigator.serviceWorker.ready;
+    
+    registration.showNotification('Task Reminder', {
+        body: task.task,
+        icon: '/static/apple-touch-icon.png',
+        badge: '/static/apple-touch-icon.png',
+        tag: `task-${task.id}`,
+        data: {
+            type: 'task',
+            taskId: task.id,
+            date: task.date
+        },
+        requireInteraction: false
+    });
+    
+    // Mark as sent
+    localStorage.setItem(notificationKey, 'true');
+}
+
+// Send notification for a day (multiple tasks)
+async function sendDayNotification(date, tasks) {
+    if (Notification.permission !== 'granted') return;
+    
+    // Check if we already sent this notification today
+    const notificationKey = `notification_sent_day_${date}`;
+    if (localStorage.getItem(notificationKey)) return;
+    
+    const registration = await navigator.serviceWorker.ready;
+    const taskCount = tasks.length;
+    const taskText = taskCount === 1 ? 'task' : 'tasks';
+    
+    registration.showNotification('Today\'s Tasks', {
+        body: `You have ${taskCount} ${taskText} scheduled for today. Tap to view.`,
+        icon: '/static/apple-touch-icon.png',
+        badge: '/static/apple-touch-icon.png',
+        tag: `day-${date}`,
+        data: {
+            type: 'day',
+            date: date
+        },
+        requireInteraction: false
+    });
+    
+    // Mark as sent
+    localStorage.setItem(notificationKey, 'true');
+}
+
 // Authentication functions
+let authCheckInProgress = false;
 async function checkAuth() {
+    // Prevent multiple simultaneous auth checks
+    if (authCheckInProgress) {
+        return false;
+    }
+    
+    authCheckInProgress = true;
+    
     try {
         const response = await fetch('/api/auth/status');
+        
+        if (!response.ok) {
+            authCheckInProgress = false;
+            window.location.href = '/login';
+            return false;
+        }
+        
         const data = await response.json();
         
         if (!data.authenticated) {
+            authCheckInProgress = false;
             window.location.href = '/login';
             return false;
         }
@@ -44,10 +549,32 @@ async function checkAuth() {
             setupAdminTaskFilter();
         }
         
+        // Check notification permission status and setup if already granted
+        // Don't auto-request permission - let user do it manually via menu
+        setTimeout(() => {
+            try {
+                if ('Notification' in window && typeof Notification !== 'undefined') {
+                    if (Notification.permission === 'granted') {
+                        setupNotificationScheduling();
+                    }
+                    // Update UI to show notification status
+                    updateUserUI();
+                }
+            } catch (error) {
+                console.error('Error with notifications:', error);
+                // Don't let notification errors break the app
+            }
+        }, 500);
+        
+        authCheckInProgress = false;
         return true;
     } catch (error) {
         console.error('Error checking auth:', error);
-        window.location.href = '/login';
+        authCheckInProgress = false;
+        // Only redirect if we're not already on the login page
+        if (!window.location.pathname.includes('/login')) {
+            window.location.href = '/login';
+        }
         return false;
     }
 }
@@ -55,6 +582,8 @@ async function checkAuth() {
 function updateUserUI() {
     const usernameDisplay = document.getElementById('user-menu-username');
     const adminMenuItem = document.getElementById('user-menu-admin');
+    const notificationMenuItem = document.getElementById('notification-menu-item');
+    const notificationMenuText = document.getElementById('notification-menu-text');
     
     if (usernameDisplay && currentUser) {
         usernameDisplay.textContent = currentUser.username;
@@ -62,6 +591,33 @@ function updateUserUI() {
     
     if (adminMenuItem) {
         adminMenuItem.style.display = isAdmin ? 'block' : 'none';
+    }
+    
+    // Update notification menu item based on permission status
+    if (notificationMenuItem && notificationMenuText) {
+        // Check if we're on HTTPS (required for notifications)
+        const isSecureContext = window.isSecureContext || window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        
+        if (!isSecureContext) {
+            notificationMenuText.textContent = 'Notifications (HTTPS Required)';
+            notificationMenuItem.style.opacity = '0.5';
+            notificationMenuItem.title = 'Notifications require HTTPS. Please access the site via HTTPS.';
+        } else if ('Notification' in window) {
+            if (Notification.permission === 'granted') {
+                notificationMenuText.textContent = 'Notifications Enabled ✓';
+                notificationMenuItem.style.opacity = '0.7';
+                notificationMenuItem.style.cursor = 'default';
+            } else if (Notification.permission === 'denied') {
+                notificationMenuText.textContent = 'Notifications Blocked';
+                notificationMenuItem.style.opacity = '0.5';
+            } else {
+                notificationMenuText.textContent = 'Enable Notifications';
+                notificationMenuItem.style.opacity = '1';
+                notificationMenuItem.style.cursor = 'pointer';
+            }
+        } else {
+            notificationMenuItem.style.display = 'none';
+        }
     }
 }
 
@@ -258,6 +814,39 @@ async function handleLogout() {
 }
 
 // Initialize on page load
+// Listen for messages from service worker (notification clicks)
+if ('serviceWorker' in navigator) {
+    // Listen for messages from service worker
+    navigator.serviceWorker.addEventListener('message', (event) => {
+        if (event.data && event.data.type === 'openDay') {
+            showDayTasks(event.data.date);
+        }
+    });
+    
+    // Also set up listener when service worker is ready
+    navigator.serviceWorker.ready.then(() => {
+        if (navigator.serviceWorker.controller) {
+            navigator.serviceWorker.controller.addEventListener('message', (event) => {
+                if (event.data && event.data.type === 'openDay') {
+                    showDayTasks(event.data.date);
+                }
+            });
+        }
+    });
+}
+
+// Also handle URL parameters for opening day view
+window.addEventListener('load', () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const dateParam = urlParams.get('date');
+    if (dateParam) {
+        // Wait a bit for page to load, then show day view
+        setTimeout(() => {
+            showDayTasks(dateParam);
+        }, 500);
+    }
+});
+
 document.addEventListener('DOMContentLoaded', async function() {
     // Check authentication first
     const authenticated = await checkAuth();
@@ -885,7 +1474,35 @@ async function saveTask(event) {
         }
         
         closePopup();
-        loadTasks();
+        await loadTasks();
+        
+        // Schedule notifications for the task
+        if (Notification.permission === 'granted' && taskId) {
+            // Wait a bit for tasks to load, then schedule
+            setTimeout(async () => {
+                try {
+                    const tasks = await fetchTasks(false);
+                    const savedTask = tasks.find(t => t.id === taskId);
+                    if (savedTask && savedTask.date && !savedTask.completed) {
+                        if (savedTask.time) {
+                            scheduleTaskNotification(savedTask);
+                        } else {
+                            // Check if there are other tasks on the same day without time
+                            const sameDayTasks = tasks.filter(t => 
+                                t.date === savedTask.date && 
+                                !t.completed && 
+                                !t.time
+                            );
+                            if (sameDayTasks.length > 0) {
+                                scheduleDayNotification(savedTask.date, sameDayTasks);
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error scheduling notification:', error);
+                }
+            }, 500);
+        }
     } catch (error) {
         console.error('Error saving task:', error);
         alert('Error saving task. Please try again.');
@@ -900,7 +1517,24 @@ async function markTaskComplete(taskId, completed) {
             body: JSON.stringify({ completed })
         });
         
+        // Cancel notification if task is completed
+        if (completed) {
+            try {
+                const tasks = await fetchTasks(false);
+                const task = tasks.find(t => t.id === taskId);
+                if (task && task.date) {
+                    const notificationKey = `notification_sent_${taskId}_${task.date}`;
+                    localStorage.removeItem(notificationKey);
+                }
+            } catch (error) {
+                console.error('Error canceling notification:', error);
+            }
+        }
+        
         loadTasks();
+        
+        // Reschedule notifications if task was uncompleted
+        // Note: scheduleAllTaskNotifications will be called on next check
     } catch (error) {
         console.error('Error updating task:', error);
         alert('Error updating task. Please try again.');

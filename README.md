@@ -36,19 +36,31 @@ The script will:
 - Start the Flask server
 
 ## Access the application:
+
+The server automatically uses HTTPS if SSL certificates are present (generated automatically on first run).
+
    - **On the same device**: Open your browser and navigate to:
      ```
-     http://localhost:5001
+     https://localhost:5001
      ```
+     (or `http://localhost:5001` if HTTPS is not enabled)
    
    - **From other devices on the same WiFi network**: You can access the application from any phone or PC on the same network using either:
-     - **IP Address**: `http://[device-ip-address]:5001` (e.g., `http://192.168.1.100:5001`)
-     - **Hostname**: `http://[hostname]:5001` (e.g., `http://raspberrypi.local:5001`)
+     - **IP Address**: `https://[device-ip-address]:5001` (e.g., `https://192.168.1.100:5001`)
+     - **Hostname**: `https://[hostname]:5001` (e.g., `https://raspberrypi.local:5001`)
    
    - **Raspberry Pi**: If running on a Raspberry Pi, it typically has `raspberrypi` as the hostname, so you can access it using:
      ```
-     http://raspberrypi.local:5001
+     https://raspberrypi.local:5001
      ```
+
+### HTTPS and Security
+
+- **Self-signed certificate**: The app uses a self-signed SSL certificate for HTTPS
+- **Browser warning**: Browsers will show a security warning for self-signed certificates - this is normal
+- **To proceed**: Click "Advanced" → "Proceed to [your-site]" (or similar)
+- **Why HTTPS?**: Required for browser notifications and PWA features
+- **Regenerate certificate**: Run `./generate_ssl_cert.sh` to create a new certificate
 
 ## Make it an iPhone or an Android (PWA) app
 

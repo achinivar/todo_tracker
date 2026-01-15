@@ -972,6 +972,94 @@ body:has(.popup.show) {
 }
 
 /* Admin UI Styles */
+.install-banner {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 15px 20px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+    animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.install-banner-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 15px;
+    flex-wrap: wrap;
+}
+
+.install-banner-text {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 200px;
+    font-weight: 500;
+}
+
+.install-banner-buttons {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.btn-install {
+    background: white;
+    color: #667eea;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 14px;
+}
+
+.btn-install:hover {
+    background: #f0f0f0;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.btn-install:active {
+    transform: translateY(0);
+}
+
+.btn-install-dismiss {
+    background: transparent;
+    color: white;
+    border: none;
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 8px;
+    opacity: 0.8;
+    transition: opacity 0.2s;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+}
+
+.btn-install-dismiss:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.2);
+}
+
 .admin-notification {
     background: linear-gradient(135deg, #ffc107 0%, #ff9800 100%);
     color: white;
@@ -1407,6 +1495,25 @@ body:has(.popup.show) {
 }
 
 @media screen and (max-width: 768px) {
+    .install-banner-content {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+    }
+    
+    .install-banner-text {
+        min-width: auto;
+    }
+    
+    .install-banner-buttons {
+        justify-content: space-between;
+        width: 100%;
+    }
+    
+    .btn-install {
+        flex: 1;
+    }
+    
     .notification-content {
         flex-direction: column;
         align-items: stretch;

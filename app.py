@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, send_from_directory
 from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash, check_password_hash
 from calendar import monthrange
@@ -449,6 +449,11 @@ def register():
     if 'user_id' in session:
         return redirect(url_for('index'))
     return render_template('register.html')
+
+@app.route('/sw.js')
+def service_worker():
+    """Serve service worker with correct MIME type"""
+    return send_from_directory('static', 'sw.js', mimetype='application/javascript')
 
 @app.route('/api/auth/login', methods=['POST'])
 def api_login():
@@ -1677,4 +1682,23 @@ if __name__ == '__main__':
     init_db()
     # Run the job once immediately on startup to extend any expiring instances
     extend_recurring_instances_job()
-    app.run(host='0.0.0.0', port=5001, debug=True)
+    
+    # Check if SSL certificates exist
+    cert_file = 'cert.pem'
+    key_file = 'key.pem'
+    use_ssl = os.path.exists(cert_file) and os.path.exists(key_file)
+    
+    if use_ssl:
+        ssl_context = (cert_file, key_file)
+        print("Starting server with HTTPS on port 5001...")
+        print("Access the app at: https://localhost:5001")
+        print("Or from other devices: https://[your-ip]:5001")
+        print("\nNote: Browsers will show a security warning for self-signed certificates.")
+        print("This is normal - click 'Advanced' and 'Proceed' to continue.\n")
+        app.run(host='0.0.0.0', port=5001, debug=True, ssl_context=ssl_context)
+    else:
+        print("Starting server with HTTP on port 5001...")
+        print("Access the app at: http://localhost:5001")
+        print("Or from other devices: http://[your-ip]:5001")
+        print("\nTo enable HTTPS, run: ./generate_ssl_cert.sh\n")
+        app.run(host='0.0.0.0', port=5001, debug=True)

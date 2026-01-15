@@ -18,6 +18,14 @@ source venv/bin/activate
 echo "Installing requirements..."
 pip install -r requirements.txt
 
+# Generate SSL certificates if they don't exist
+if [ ! -f "cert.pem" ] || [ ! -f "key.pem" ]; then
+    echo ""
+    echo "SSL certificates not found. Generating..."
+    ./generate_ssl_cert.sh
+    echo ""
+fi
+
 # Run the application
 echo "Starting server..."
 python app.py

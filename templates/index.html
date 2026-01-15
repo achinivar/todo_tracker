@@ -4,11 +4,38 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Task Tracker</title>
+    
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#667eea">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Task Tracker">
+    <meta name="description" content="A web-based lightweight task tracker with user authentication and privilege management">
+    
+    <!-- Icons and Manifest -->
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+    
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
     <div class="container">
+        <!-- Install App Banner -->
+        <div id="install-banner" class="install-banner" style="display: none;">
+            <div class="install-banner-content">
+                <div class="install-banner-text">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;">
+                        <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+                    </svg>
+                    <span id="install-banner-text">Install Task Tracker for quick access</span>
+                </div>
+                <div class="install-banner-buttons">
+                    <button class="btn-install" id="install-button" onclick="handleInstallClick()">Install</button>
+                    <button class="btn-install-dismiss" onclick="dismissInstallBanner()" title="Dismiss">×</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Admin Notification Banner -->
         <div id="admin-notification" class="admin-notification" style="display: none;">
             <div class="notification-content">
@@ -48,6 +75,13 @@
                                 <path d="M3 9h18M9 21V9"/>
                             </svg>
                             Admin Dashboard
+                        </button>
+                        <button class="user-menu-item" id="notification-menu-item" onclick="requestNotificationPermissionManual()">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                                <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                            </svg>
+                            <span id="notification-menu-text">Enable Notifications</span>
                         </button>
                         <button class="user-menu-item" onclick="openChangePasswordPopup()">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

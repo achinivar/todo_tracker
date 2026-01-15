@@ -30,5 +30,9 @@ Thumbs.db
 # Secret key
 .secret_key
 
+# SSL certificates
+cert.pem
+key.pem
+
 # Local scripts directory
 local_scripts/
