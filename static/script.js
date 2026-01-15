@@ -609,6 +609,7 @@ function renderTaskGroup(containerId, tasks) {
 function createTaskElement(task, isCompleted) {
     const taskDiv = document.createElement('div');
     taskDiv.className = 'task-item';
+    taskDiv.dataset.taskId = task.id;
     
     const taskInfo = document.createElement('div');
     taskInfo.className = 'task-info';
@@ -1024,12 +1025,24 @@ async function saveTask(event) {
 
 async function markTaskComplete(taskId, completed) {
     try {
-        await fetch(`/api/tasks/${taskId}`, {
+        const response = await fetch(`/api/tasks/${taskId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ completed })
         });
-        
+
+        if (!response.ok) {
+            throw new Error('Failed to update task');
+        }
+
+        if (completed) {
+            const taskElement = document.querySelector(`.task-item[data-task-id="${taskId}"]`);
+            if (taskElement) {
+                taskElement.classList.add('task-complete-celebrate');
+                await new Promise(resolve => setTimeout(resolve, 450));
+            }
+        }
+
         loadTasks();
     } catch (error) {
         console.error('Error updating task:', error);
