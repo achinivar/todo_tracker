@@ -1683,4 +1683,17 @@ if __name__ == '__main__':
     init_db()
     # Run the job once immediately on startup to extend any expiring instances
     extend_recurring_instances_job()
-    app.run(host='0.0.0.0', port=5001, debug=True)
+    app_host = os.getenv('APP_HOST', '0.0.0.0')
+    app_port = int(os.getenv('APP_PORT', '5001'))
+    app_debug = os.getenv('APP_DEBUG', 'true').lower() in ('1', 'true', 'yes')
+    app_use_tls = os.getenv('APP_USE_TLS', 'false').lower() in ('1', 'true', 'yes')
+    cert_path = os.getenv('APP_CERT_PATH', '')
+    key_path = os.getenv('APP_KEY_PATH', '')
+
+    ssl_context = None
+    if app_use_tls:
+        if not cert_path or not key_path:
+            raise RuntimeError('APP_CERT_PATH and APP_KEY_PATH are required when APP_USE_TLS=true')
+        ssl_context = (cert_path, key_path)
+
+    app.run(host=app_host, port=app_port, debug=app_debug, ssl_context=ssl_context)

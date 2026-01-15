@@ -32,3 +32,6 @@ Thumbs.db
 
 # Local scripts directory
 local_scripts/
+
+# Local HTTPS certificates
+.certs/

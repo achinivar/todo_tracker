@@ -21,10 +21,11 @@ Run this on a raspberry pi or your home server and everyone in the house can tra
 
 ![Desktop View](Webpage_Screenshot.png)
 
-## Start the application
+## Start the application (HTTPS locally)
 
-On a Raspberry Pi or anywhere you want to host the server, run the startup script 
-This will automatically create a virtual environment, install dependencies, and start the server.
+On a Raspberry Pi or anywhere you want to host the server, install `mkcert` and run the startup script.
+This will automatically create a virtual environment, install dependencies, generate a local HTTPS
+certificate, and start the server over HTTPS.
 
 ```bash
 ./start_server.sh
@@ -33,22 +34,33 @@ This will automatically create a virtual environment, install dependencies, and 
 The script will:
 - Create a Python virtual environment (if it doesn't exist)
 - Install all required dependencies from `requirements.txt`
-- Start the Flask server
+- Generate and trust a local HTTPS certificate (via `mkcert`)
+- Start the Flask server with HTTPS
+
+### Install mkcert
+Follow the official instructions for your OS: https://github.com/FiloSottile/mkcert
 
 ## Access the application:
    - **On the same device**: Open your browser and navigate to:
      ```
-     http://localhost:5001
+     https://localhost:5001
      ```
    
-   - **From other devices on the same WiFi network**: You can access the application from any phone or PC on the same network using either:
-     - **IP Address**: `http://[device-ip-address]:5001` (e.g., `http://192.168.1.100:5001`)
-     - **Hostname**: `http://[hostname]:5001` (e.g., `http://raspberrypi.local:5001`)
+   - **From other devices on the same WiFi network**: You can access the application from any phone or PC on the same network using:
+     - **IP Address**: `https://[device-ip-address]:5001` (e.g., `https://192.168.1.100:5001`)
+     - **Hostname**: `https://[hostname]:5001` (e.g., `https://raspberrypi.local:5001`)
    
    - **Raspberry Pi**: If running on a Raspberry Pi, it typically has `raspberrypi` as the hostname, so you can access it using:
      ```
-     http://raspberrypi.local:5001
+     https://raspberrypi.local:5001
      ```
+
+The startup script generates a certificate for `localhost`, your machine hostname, and the first LAN IP it detects.
+If your LAN IP changes, delete `.certs/` and re-run the script to regenerate the cert.
+
+## Hosting on Railway
+Railway terminates HTTPS for you, so you should run the app without TLS there.
+Set `APP_USE_TLS=false` and bind to `0.0.0.0` (Railway defaults are fine).
 
 ## Make it an iPhone or an Android (PWA) app
 
