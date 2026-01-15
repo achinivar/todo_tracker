@@ -257,8 +257,21 @@ async function handleLogout() {
     }
 }
 
+async function registerServiceWorker() {
+    if (!('serviceWorker' in navigator)) {
+        return;
+    }
+    try {
+        await navigator.serviceWorker.register('/service-worker.js');
+    } catch (error) {
+        console.warn('Service worker registration failed:', error);
+    }
+}
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', async function() {
+    await registerServiceWorker();
+
     // Check authentication first
     const authenticated = await checkAuth();
     if (!authenticated) return;
