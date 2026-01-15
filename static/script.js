@@ -73,13 +73,55 @@ function toggleUserMenu() {
     }
 }
 
+function closeTaskMenus(exceptMenu = null) {
+    const menus = document.querySelectorAll('.task-menu');
+    menus.forEach(menu => {
+        if (menu !== exceptMenu) {
+            menu.classList.remove('open');
+        }
+    });
+}
+
+function toggleTaskMenu(menu) {
+    const isOpen = menu.classList.contains('open');
+    closeTaskMenus();
+    if (!isOpen) {
+        menu.classList.add('open');
+    }
+}
+
+function attachCompleteSlider(slider, taskId) {
+    let triggered = false;
+
+    slider.addEventListener('input', () => {
+        if (triggered) return;
+        if (Number(slider.value) >= 95) {
+            triggered = true;
+            slider.value = 100;
+            slider.disabled = true;
+            markTaskComplete(taskId, true);
+        }
+    });
+
+    slider.addEventListener('change', () => {
+        if (!triggered) {
+            slider.value = 0;
+        }
+    });
+}
+
 // Close user menu when clicking outside
 document.addEventListener('click', function(event) {
     const avatarContainer = document.querySelector('.user-avatar-container');
     const menu = document.getElementById('user-menu');
+    const taskMenuContainer = event.target.closest('.task-menu-container');
     
     if (avatarContainer && menu && !avatarContainer.contains(event.target)) {
         menu.style.display = 'none';
+    }
+
+    if (!taskMenuContainer) {
+        closeTaskMenus();
     }
 });
 
@@ -636,6 +678,10 @@ function createTaskElement(task, isCompleted) {
     
     const actions = document.createElement('div');
     actions.className = 'task-actions';
+
+    const desktopActions = document.createElement('div');
+    desktopActions.className = 'task-actions-desktop';
+    actions.appendChild(desktopActions);
     
     if (isCompleted) {
         if (isAdmin) {
@@ -644,30 +690,101 @@ function createTaskElement(task, isCompleted) {
             incompleteBtn.className = 'btn-action btn-incomplete';
             incompleteBtn.textContent = 'Mark Incomplete';
             incompleteBtn.onclick = () => markTaskComplete(task.id, false);
-            actions.appendChild(incompleteBtn);
+            desktopActions.appendChild(incompleteBtn);
+
+            const mobileActions = document.createElement('div');
+            mobileActions.className = 'task-actions-mobile';
+
+            const incompleteMobileBtn = document.createElement('button');
+            incompleteMobileBtn.type = 'button';
+            incompleteMobileBtn.className = 'btn-action btn-incomplete';
+            incompleteMobileBtn.textContent = 'Mark Incomplete';
+            incompleteMobileBtn.onclick = () => markTaskComplete(task.id, false);
+            mobileActions.appendChild(incompleteMobileBtn);
+
+            actions.classList.add('has-mobile');
+            actions.appendChild(mobileActions);
         }
     } else {
         if (isAdmin) {
-            const completeBtn = document.createElement('button');
-            completeBtn.type = 'button';
-            completeBtn.className = 'btn-action btn-complete';
-            completeBtn.textContent = 'Complete';
-            completeBtn.onclick = () => markTaskComplete(task.id, true);
-            actions.appendChild(completeBtn);
-            
             const editBtn = document.createElement('button');
             editBtn.type = 'button';
             editBtn.className = 'btn-action btn-edit';
             editBtn.textContent = 'Edit';
             editBtn.onclick = () => editTask(task);
-            actions.appendChild(editBtn);
             
             const deleteBtn = document.createElement('button');
             deleteBtn.type = 'button';
             deleteBtn.className = 'btn-action btn-delete';
             deleteBtn.textContent = 'Delete';
             deleteBtn.onclick = () => deleteTask(task.id, task);
-            actions.appendChild(deleteBtn);
+            
+            const completeBtn = document.createElement('button');
+            completeBtn.type = 'button';
+            completeBtn.className = 'btn-action btn-complete';
+            completeBtn.textContent = 'Complete';
+            completeBtn.onclick = () => markTaskComplete(task.id, true);
+
+            desktopActions.appendChild(deleteBtn);
+            desktopActions.appendChild(editBtn);
+            desktopActions.appendChild(completeBtn);
+
+            const mobileActions = document.createElement('div');
+            mobileActions.className = 'task-actions-mobile';
+
+            const deleteIconBtn = document.createElement('button');
+            deleteIconBtn.type = 'button';
+            deleteIconBtn.className = 'task-icon-button task-icon-delete';
+            deleteIconBtn.setAttribute('aria-label', 'Delete task');
+            deleteIconBtn.innerHTML = `
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                    <path d="M10 11v6"/>
+                    <path d="M14 11v6"/>
+                    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+                </svg>
+            `;
+            deleteIconBtn.onclick = () => deleteTask(task.id, task);
+
+            const editIconBtn = document.createElement('button');
+            editIconBtn.type = 'button';
+            editIconBtn.className = 'task-icon-button task-icon-edit';
+            editIconBtn.setAttribute('aria-label', 'Edit task');
+            editIconBtn.innerHTML = `
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 20h9"/>
+                    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>
+                </svg>
+            `;
+            editIconBtn.onclick = () => editTask(task);
+
+            mobileActions.appendChild(deleteIconBtn);
+            mobileActions.appendChild(editIconBtn);
+
+            const sliderWrap = document.createElement('div');
+            sliderWrap.className = 'complete-slider-wrap';
+
+            const slider = document.createElement('input');
+            slider.type = 'range';
+            slider.min = '0';
+            slider.max = '100';
+            slider.value = '0';
+            slider.className = 'complete-slider';
+            slider.setAttribute('aria-label', 'Slide to complete');
+
+            const sliderLabel = document.createElement('span');
+            sliderLabel.className = 'complete-slider-label';
+            sliderLabel.textContent = 'Slide to complete';
+
+            sliderWrap.appendChild(slider);
+            sliderWrap.appendChild(sliderLabel);
+            mobileActions.appendChild(sliderWrap);
+
+            attachCompleteSlider(slider, task.id);
+
+            actions.classList.add('has-mobile');
+            actions.appendChild(mobileActions);
         } else {
             // Regular users can request to mark task as complete
             const requestCompleteBtn = document.createElement('button');
@@ -685,7 +802,7 @@ function createTaskElement(task, isCompleted) {
                 requestCompleteBtn.onclick = () => requestTaskComplete(task.id);
             }
             
-            actions.appendChild(requestCompleteBtn);
+            desktopActions.appendChild(requestCompleteBtn);
         }
     }
     

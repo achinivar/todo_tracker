@@ -320,6 +320,85 @@ header h1 {
     gap: 10px;
 }
 
+.task-actions-desktop {
+    display: flex;
+    gap: 10px;
+}
+
+.task-actions-mobile {
+    display: none;
+    align-items: center;
+    gap: 10px;
+}
+
+.task-icon-button {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+    background: white;
+    color: #333;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.task-icon-delete {
+    color: #c82333;
+}
+
+.task-icon-edit {
+    color: #667eea;
+}
+
+.complete-slider-wrap {
+    position: relative;
+    flex: 1;
+    min-width: 160px;
+}
+
+.complete-slider {
+    width: 100%;
+    appearance: none;
+    height: 34px;
+    border-radius: 18px;
+    background: #eef1f4;
+    border: 1px solid #d7dbe0;
+    outline: none;
+}
+
+.complete-slider::-webkit-slider-thumb {
+    appearance: none;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: #28a745;
+    border: 2px solid #ffffff;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    cursor: pointer;
+}
+
+.complete-slider::-moz-range-thumb {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: #28a745;
+    border: 2px solid #ffffff;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    cursor: pointer;
+}
+
+.complete-slider-label {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 12px;
+    color: #6c757d;
+    pointer-events: none;
+}
+
 .btn-action {
     padding: 6px 12px;
     border: none;
@@ -794,6 +873,15 @@ body:has(.popup.show) {
         flex-wrap: wrap;
         width: 100%;
         justify-content: stretch;
+    }
+
+    .task-actions.has-mobile .task-actions-desktop {
+        display: none;
+    }
+
+    .task-actions.has-mobile .task-actions-mobile {
+        display: flex;
+        width: 100%;
     }
 
     .btn-action {
