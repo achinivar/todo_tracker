@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, send_from_directory
 from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash, check_password_hash
 from calendar import monthrange
@@ -435,6 +435,12 @@ def index():
         return redirect(url_for('login'))
     cleanup_old_completed_tasks()
     return render_template('index.html')
+
+@app.route('/service-worker.js')
+def service_worker():
+    response = send_from_directory('static', 'service-worker.js')
+    response.headers['Cache-Control'] = 'no-cache'
+    return response
 
 @app.route('/login')
 def login():
